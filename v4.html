@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STALZON</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg-void:      #0a0b0c;
+    --bg-panel:     #131416;
+    --bg-panel-2:   #1a1c1e;
+    --line:         #26282b;
+    --line-soft:    #1d1f21;
+    --corner:       rgba(230,231,228,0.28);
+    --buy:          #7bb662;
+    --sell:         #cf5c4c;
+    --amber:        #d0a244;
+    --bone:         #e6e7e4;
+    --bone-dim:     #86888b;
+    --bone-faint:   #4c4e51;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{background:var(--bg-void); height:100%;}
+  body{
+    font-family:'Inter', sans-serif;
+    color:var(--bone);
+    -webkit-font-smoothing:antialiased;
+    display:flex;
+    justify-content:center;
+  }
+  body::before{
+    content:'';
+    position:fixed; inset:0;
+    background-image:
+      radial-gradient(ellipse at 50% -10%, rgba(255,255,255,0.03), transparent 55%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.01) 0px, rgba(255,255,255,0.01) 1px, transparent 1px, transparent 3px);
+    pointer-events:none;
+  }
+
+  .app{
+    width:100%; max-width:420px; height:var(--app-height, 100vh);
+    background:var(--bg-void);
+    position:relative;
+    display:flex; flex-direction:column;
+    border-left:1px solid var(--line);
+    border-right:1px solid var(--line);
+    overflow:hidden;
+  }
+
+  .corners > .c{ position:absolute; width:11px; height:11px; pointer-events:none; z-index:5; }
+  .corners > .c.tl{ top:6px; left:6px; border-top:1px solid var(--corner); border-left:1px solid var(--corner); }
+  .corners > .c.tr{ top:6px; right:6px; border-top:1px solid var(--corner); border-right:1px solid var(--corner); }
+  .corners > .c.bl{ bottom:6px; left:6px; border-bottom:1px solid var(--corner); border-left:1px solid var(--corner); }
+  .corners > .c.br{ bottom:6px; right:6px; border-bottom:1px solid var(--corner); border-right:1px solid var(--corner); }
+
+  /* ---------- HEADER ---------- */
+  .header{ display:flex; align-items:center; gap:11px; padding:14px 16px; border-bottom:1px solid var(--line); background:var(--bg-panel); flex-shrink:0; }
+  .id-icon{ width:34px; height:34px; border-radius:2px; background:var(--bg-panel-2); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .id-icon svg{ width:17px; height:17px; stroke:var(--bone-dim); fill:none; stroke-width:1.5; }
+  .id-text{ display:flex; flex-direction:column; gap:1px; flex:1; min-width:0; }
+  .id-name{ font-family:'Oswald', sans-serif; font-weight:600; font-size:13.5px; letter-spacing:0.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .id-sub{ font-family:'JetBrains Mono', monospace; font-size:10.5px; color:var(--bone-faint); letter-spacing:0.03em; text-transform:uppercase; }
+  .header-icons{ display:flex; gap:6px; }
+  .hicon{ width:30px; height:30px; border-radius:2px; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer; background:transparent; }
+  .hicon svg{ width:14px; height:14px; stroke:var(--bone-dim); fill:none; stroke-width:1.5; }
+  .hicon .dot{ position:absolute; top:-3px; right:-3px; width:6px; height:6px; border-radius:50%; background:var(--sell); border:1.5px solid var(--bg-panel); }
+
+  /* ---------- TAB STRIP ---------- */
+  .tabstrip{ display:flex; border-bottom:1px solid var(--line); background:var(--bg-void); overflow-x:auto; flex-shrink:0; }
+  .tabstrip::-webkit-scrollbar{ display:none; }
+  .tstab{ padding:12px 13px 11px; font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--bone-faint); white-space:nowrap; border-bottom:2px solid transparent; cursor:pointer; user-select:none; background:none; border-left:none; border-right:none; border-top:none; }
+  .tstab.active{ color:var(--bone); border-bottom-color:var(--amber); }
+
+  /* ---------- CONTENT / SCREENS ---------- */
+  .content{ flex:1; overflow-y:auto; position:relative; }
+  .screen{ display:none; padding:16px 16px 100px; animation:fadeIn 0.18s ease; }
+  .screen.active{ display:block; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);} }
+
+  .panel-label{ display:flex; justify-content:space-between; align-items:center; font-family:'JetBrains Mono', monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--bone-faint); padding:0 2px 8px; margin-top:18px; }
+  .panel-label:first-child{ margin-top:0; }
+  .panel-label b{ color:var(--bone-dim); font-weight:500; }
+
+  /* ---------- EMISSION PANEL ---------- */
+  .panel{ background:var(--bg-panel); border:1px solid var(--line); padding:20px 16px 16px; margin-bottom:14px; }
+  .em-head{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; cursor:pointer; }
+  .em-status{ font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.08em; color:var(--bone-faint); }
+  .em-status b{ display:block; font-family:'Oswald',sans-serif; font-size:18px; letter-spacing:0.01em; color:var(--buy); margin-top:4px; text-transform:none; font-weight:600; }
+  .panel.is-active .em-status b{ color:var(--sell); }
+  .dot-live{ width:8px; height:8px; border-radius:50%; background:var(--buy); margin-top:3px; animation:blink 2.4s ease-in-out infinite; }
+  .panel.is-active .dot-live{ background:var(--sell); animation:blink 0.9s ease-in-out infinite; }
+  @keyframes blink{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+  .em-count{ font-family:'JetBrains Mono', monospace; font-size:32px; font-weight:700; letter-spacing:0.01em; font-variant-numeric:tabular-nums; margin-bottom:4px; }
+  .em-caption{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--bone-faint); }
+  .em-note{ margin-top:14px; padding-top:12px; border-top:1px solid var(--line-soft); font-size:12px; line-height:1.5; color:var(--bone-dim); }
+  .em-note b{ color:var(--amber); font-weight:500; }
+  .em-tap-hint{ font-family:'JetBrains Mono', monospace; font-size:9.5px; color:var(--bone-faint); text-align:right; margin-top:-10px; margin-bottom:14px; opacity:0.7; }
+
+  .region-row{ display:flex; gap:1px; margin-bottom:4px; border:1px solid var(--line); }
+  .rchip{ flex:1; text-align:center; padding:8px 0; font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.05em; color:var(--bone-faint); background:var(--bg-panel); cursor:pointer; }
+  .rchip.active{ color:var(--bone); background:var(--bg-panel-2); }
+  .rchip + .rchip{ border-left:1px solid var(--line); }
+
+  /* ---------- DATA ROWS ---------- */
+  .table{ border:1px solid var(--line); }
+  .trow{ display:flex; align-items:center; gap:10px; padding:11px 12px; border-bottom:1px solid var(--line-soft); background:var(--bg-panel); cursor:pointer; }
+  .trow:last-child{ border-bottom:none; }
+  .trow:active{ background:var(--bg-panel-2); }
+  .trow-ic{ width:26px; height:26px; flex-shrink:0; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--bone-dim); }
+  .trow-body{ flex:1; min-width:0; }
+  .trow-title{ font-size:12.5px; font-weight:500; margin-bottom:1px; }
+  .trow-sub{ font-family:'JetBrains Mono', monospace; font-size:10.5px; color:var(--bone-faint); letter-spacing:0.02em; }
+  .trow-sub.sell{ color:var(--sell); }
+  .trow-sub.buy{ color:var(--buy); }
+  .trow-val{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--amber); border:1px solid var(--line); padding:4px 8px; flex-shrink:0; background:transparent; transition:all 0.15s ease; }
+  .trow-val.copied{ color:var(--buy); border-color:var(--buy); }
+  .trow-price{ font-family:'JetBrains Mono', monospace; font-size:12px; text-align:right; flex-shrink:0; }
+  .trow-price b{ display:block; font-size:12.5px; color:var(--bone); }
+  .trow-price span{ font-size:10px; }
+  .trow-price span.up{ color:var(--buy); }
+  .trow-price span.down{ color:var(--sell); }
+
+  /* ---------- SEARCH ---------- */
+  .search{ display:flex; align-items:center; gap:8px; border:1px solid var(--line); background:var(--bg-panel); padding:9px 11px; margin-bottom:14px; }
+  .search svg{ width:14px; height:14px; stroke:var(--bone-faint); fill:none; stroke-width:1.5; flex-shrink:0; }
+  .search input{ background:none; border:none; outline:none; color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; width:100%; }
+  .search input::placeholder{ color:var(--bone-faint); }
+
+  /* ---------- ITEM / GUIDE DETAIL OVERLAY ---------- */
+  .detail{ display:none; }
+  .detail.active{ display:block; animation:fadeIn 0.18s ease; }
+  .detail-back{ display:flex; align-items:center; gap:7px; font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.05em; text-transform:uppercase; color:var(--bone-dim); cursor:pointer; margin-bottom:14px; }
+  .detail-back svg{ width:13px; height:13px; stroke:currentColor; fill:none; stroke-width:2; }
+
+  .item-head{ display:flex; gap:12px; align-items:center; margin-bottom:16px; }
+  .item-thumb{ width:52px; height:52px; border:1px solid var(--line); background:var(--bg-panel-2); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+  .item-name{ font-family:'Oswald', sans-serif; font-weight:600; font-size:15px; margin-bottom:3px; }
+  .item-meta{ font-family:'JetBrains Mono', monospace; font-size:10.5px; color:var(--bone-faint); text-transform:uppercase; letter-spacing:0.04em; }
+
+  .stat-row{ display:flex; border:1px solid var(--line); margin-bottom:14px; }
+  .stat{ flex:1; padding:10px 12px; }
+  .stat + .stat{ border-left:1px solid var(--line); }
+  .stat-label{ font-family:'JetBrains Mono', monospace; font-size:9.5px; color:var(--bone-faint); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; }
+  .stat-val{ font-family:'JetBrains Mono', monospace; font-size:13.5px; color:var(--bone); }
+  .stat-val.up{ color:var(--buy); }
+
+  .chart-box{ border:1px solid var(--line); background:var(--bg-panel); padding:10px; margin-bottom:14px; }
+  .chart-tabs{ display:flex; gap:6px; margin-bottom:8px; }
+  .ctab{ font-family:'JetBrains Mono', monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.04em; color:var(--bone-faint); border:1px solid var(--line); padding:4px 8px; cursor:pointer; }
+  .ctab.active{ color:var(--amber); border-color:var(--amber); }
+
+  .actions{ display:flex; gap:8px; margin-bottom:18px; }
+  .btn{ flex:1; text-align:center; padding:11px 0; font-family:'JetBrains Mono', monospace; font-size:11.5px; letter-spacing:0.05em; text-transform:uppercase; border:1px solid var(--line); background:var(--bg-panel); color:var(--bone); cursor:pointer; }
+  .btn.buy{ border-color:var(--buy); color:var(--buy); }
+  .btn.sell{ border-color:var(--sell); color:var(--sell); }
+  .btn:active{ transform:scale(0.98); }
+
+  .book{ display:flex; border:1px solid var(--line); }
+  .book-col{ flex:1; }
+  .book-col + .book-col{ border-left:1px solid var(--line); }
+  .book-head{ font-family:'JetBrains Mono', monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--bone-faint); padding:8px 10px; border-bottom:1px solid var(--line); }
+  .book-row{ display:flex; justify-content:space-between; padding:6px 10px; font-family:'JetBrains Mono', monospace; font-size:11px; border-bottom:1px solid var(--line-soft); }
+  .book-row.buy{ color:var(--buy); }
+  .book-row.sell{ color:var(--sell); }
+
+  .guide-steps{ border:1px solid var(--line); }
+  .gstep{ display:flex; gap:10px; padding:11px 12px; border-bottom:1px solid var(--line-soft); }
+  .gstep:last-child{ border-bottom:none; }
+  .gstep-n{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--amber); flex-shrink:0; width:18px; }
+  .gstep-t{ font-size:12.5px; line-height:1.4; color:var(--bone-dim); }
+
+  /* ---------- MAP SCREEN ---------- */
+  .map-placeholder{ border:1px solid var(--line); background:var(--bg-panel); padding:40px 20px; text-align:center; }
+  .map-placeholder svg{ width:28px; height:28px; stroke:var(--bone-faint); fill:none; stroke-width:1.3; margin-bottom:12px; }
+  .map-placeholder p{ font-size:12.5px; color:var(--bone-dim); line-height:1.6; margin-bottom:16px; }
+
+  /* ---------- BOTTOM NAV ---------- */
+  .tabbar{ position:absolute; left:0; right:0; bottom:0; display:flex; background:rgba(10,11,12,0.94); backdrop-filter:blur(10px); border-top:1px solid var(--line); padding:9px 4px calc(9px + env(safe-area-inset-bottom)); z-index:4; }
+  .tab{ flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:6px 0 4px; color:var(--bone-faint); position:relative; cursor:pointer; background:none; border:none; }
+  .tab svg{ width:17px; height:17px; stroke:currentColor; fill:none; stroke-width:1.5; }
+  .tab-label{ font-family:'JetBrains Mono', monospace; font-size:8.7px; letter-spacing:0.03em; text-transform:uppercase; }
+  .tab.active{ color:var(--amber); }
+  .tab.active::before{ content:''; position:absolute; top:-9px; left:50%; transform:translateX(-50%); width:13px; height:2px; background:var(--amber); }
+
+  /* ---------- TOAST ---------- */
+  .toast{ position:absolute; left:16px; right:16px; bottom:78px; background:var(--bg-panel-2); border:1px solid var(--amber); padding:11px 14px; font-family:'JetBrains Mono', monospace; font-size:11.5px; color:var(--bone); text-align:center; z-index:20; opacity:0; pointer-events:none; transform:translateY(8px); transition:all 0.2s ease; }
+  .toast.show{ opacity:1; transform:translateY(0); }
+
+  ::-webkit-scrollbar{ width:0; }
+</style>
+</head>
+<body>
+
+<div class="app corners">
+  <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+
+  <div class="header">
+    <div class="id-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg></div>
+    <div class="id-text">
+      <div class="id-name">Dan_Zaraza</div>
+      <div class="id-sub">EU · привязан</div>
+    </div>
+    <div class="header-icons">
+      <div class="hicon"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></div>
+      <div class="hicon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 0 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/></svg></div>
+    </div>
+  </div>
+
+  <div class="tabstrip" id="tabstrip">
+    <div class="tstab active" data-target="emission">выброс</div>
+    <div class="tstab" data-target="auction">аукцион</div>
+    <div class="tstab" data-target="promo">промокоды</div>
+    <div class="tstab" data-target="guides">гайды</div>
+    <div class="tstab" data-target="map">карта</div>
+  </div>
+
+  <div class="content" id="content">
+
+    <!-- ===== EMISSION ===== -->
+    <div class="screen active" data-screen="emission">
+      <div class="panel-label">зона <b id="curRegion">EU</b> · статус выброса</div>
+      <div class="panel" id="emissionCard">
+        <div class="em-head" id="emissionToggle">
+          <div class="em-status">состояние<b id="statusText">спокойно</b></div>
+          <div class="dot-live" id="statusDot"></div>
+        </div>
+        <div class="em-count" id="counterDigits">03:47:12</div>
+        <div class="em-caption" id="counterCaption">прошло с последнего выброса</div>
+        <div class="em-note"><b>Важно.</b> Выброс происходит нерегулярно — таймер считает время с прошлого события, не прогноз следующего. Уведомление придёт по факту от API.</div>
+      </div>
+      <div class="em-tap-hint">нажми на карточку, чтобы посмотреть демо-состояние «выброс»</div>
+      <div class="region-row" id="regionRow">
+        <div class="rchip active" data-region="EU">EU</div>
+        <div class="rchip" data-region="RU">RU</div>
+        <div class="rchip" data-region="NA">NA</div>
+        <div class="rchip" data-region="SEA">SEA</div>
+      </div>
+    </div>
+
+    <!-- ===== AUCTION ===== -->
+    <div class="screen" data-screen="auction">
+      <div id="auctionList">
+        <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input type="text" id="auctionSearch" placeholder="Поиск по предметам"></div>
+        <div class="panel-label">биржа</div>
+        <div class="table" id="auctionTable"></div>
+      </div>
+      <div class="detail" id="auctionDetail"></div>
+    </div>
+
+    <!-- ===== PROMO ===== -->
+    <div class="screen" data-screen="promo">
+      <div class="panel-label">свежие промокоды</div>
+      <div class="table" id="promoTable"></div>
+    </div>
+
+    <!-- ===== GUIDES ===== -->
+    <div class="screen" data-screen="guides">
+      <div id="guidesList">
+        <div class="panel-label">гайды по сюжету</div>
+        <div class="table" id="guidesTable"></div>
+      </div>
+      <div class="detail" id="guideDetail"></div>
+    </div>
+
+    <!-- ===== MAP ===== -->
+    <div class="screen" data-screen="map">
+      <div class="panel-label">карта зоны</div>
+      <div class="map-placeholder">
+        <svg viewBox="0 0 24 24"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+        <p>Своя карта пока не решена — открываем внешнюю интерактивную карту в браузере, чтобы не дублировать чужую работу.</p>
+        <div class="btn" style="border-color:var(--amber); color:var(--amber);" id="mapOpenBtn">Открыть карту ↗</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="tabbar" id="tabbar">
+    <div class="tab active" data-target="emission"><svg viewBox="0 0 24 24"><path d="M12 2v6M12 16v6M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M2 12h6M16 12h6M4.9 19.1l4.2-4.2M14.9 9.1l4.2-4.2"/></svg><div class="tab-label">Выброс</div></div>
+    <div class="tab" data-target="auction"><svg viewBox="0 0 24 24"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg><div class="tab-label">Аукцион</div></div>
+    <div class="tab" data-target="promo"><svg viewBox="0 0 24 24"><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6M2 7h20v5H2zM12 22V7M7 7a2.5 2.5 0 0 1 0-5C9.5 2 12 7 12 7s2.5-5 5-5a2.5 2.5 0 0 1 0 5"/></svg><div class="tab-label">Промо</div></div>
+    <div class="tab" data-target="guides"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z"/></svg><div class="tab-label">Гайды</div></div>
+    <div class="tab" data-target="map"><svg viewBox="0 0 24 24"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg><div class="tab-label">Карта</div></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+/* ---------------- TELEGRAM WEBAPP INTEGRATION ---------------- */
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();                              // разворачиваем на всю доступную высоту
+  tg.setHeaderColor('#0a0b0c');              // шапка Telegram в цвет нашего фона
+  tg.setBackgroundColor('#0a0b0c');
+  tg.disableVerticalSwipes?.();              // чтобы свайп вниз не закрывал апп случайно при скролле контента
+
+  const applyHeight = () => {
+    document.documentElement.style.setProperty('--app-height', tg.viewportStableHeight + 'px');
+  };
+  applyHeight();
+  tg.onEvent('viewportChanged', applyHeight);
+} else {
+  // Открыто не внутри Telegram (например, ты тестируешь файл прямо в браузере) — просто работаем на 100vh.
+  console.log('Telegram.WebApp SDK not detected — running in plain-browser preview mode.');
+}
+
+// Единая точка входа/выхода из "детальных" экранов — используем системную кнопку "Назад"
+// вместо своей внутри аппа, когда мы внутри Telegram.
+function setBackButton(onBack){
+  if (!tg) return; // в браузере просто ничего не делаем — там есть наши текстовые "назад"
+  if (onBack){
+    tg.BackButton.show();
+    tg.BackButton.offClick(tg._lastBackHandler || (()=>{}));
+    tg._lastBackHandler = onBack;
+    tg.BackButton.onClick(onBack);
+  } else {
+    tg.BackButton.hide();
+  }
+}
+
+/* ---------------- DATA ---------------- */
+const promos = [
+  {code:'EXBO-SUMMER26', status:'истекает через 4 ч', kind:'sell'},
+  {code:'STALZONE-FOREVER', status:'бессрочный', kind:'buy'},
+  {code:'ZONE-DROP-14', status:'истекает через 27 мин', kind:'sell'},
+];
+
+const guides = [
+  {title:'Пролог: выход из подземелья', meta:'7 шагов · сюжет', steps:[
+    'Осмотри тело у лестницы — забери аптечку и нож.',
+    'Спустись на уровень ниже, держась левой стены.',
+    'Обойди аномалию «карусель» по отмеченной тропе.',
+    'Найди рычаг за ржавой дверью и открой шлюз.',
+    'Пройди мимо контролёра, не включая фонарь.',
+    'Поднимись по лестнице к выходу на поверхность.',
+    'Доложи о выходе на посту у КПП.'
+  ]},
+  {title:'Ржавый лес: тайник Стрелка', meta:'12 шагов · сюжет', steps:[
+    'Возьми задание у торговца на болоте.',
+    'Дойди до сгоревшей вышки на краю леса.',
+    'Осмотри три отмеченных дерева по кругу.',
+    'Отыщи метку ножом на четвёртом дереве.',
+    'Раскопай тайник у корней.',
+    'Заберите артефакт и контейнер с патронами.'
+  ]}
+];
+
+const auctionItems = [
+  {icon:'💊', name:'Аптечка армейская', cat:'Медикаменты', price:'12 340', change:5.2, up:true,
+    buy:[[3424,11800],[653,11650],[18823,11500]], sell:[[12420,320],[12580,140],[12900,60]]},
+  {icon:'🔫', name:'АКМ-74 obr.2', cat:'Оружие', price:'184 200', change:-2.1, up:false,
+    buy:[[2,182000],[1,180500]], sell:[[184800,4],[186200,2],[190000,1]]},
+  {icon:'☢', name:'Артефакт «Слеза»', cat:'Артефакты', price:'999 900', change:12.4, up:true,
+    buy:[[1,940000],[1,912000]], sell:[[1010000,1],[1080000,1]]},
+  {icon:'🥫', name:'Тушёнка «Мясо»', cat:'Еда', price:'640', change:0.0, up:true,
+    buy:[[9214,610],[6785,600]], sell:[[645,900],[660,420]]},
+];
+
+/* ---------------- TAB SWITCHING ---------------- */
+function showScreen(name){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active', s.dataset.screen===name));
+  document.querySelectorAll('.tstab').forEach(t=>t.classList.toggle('active', t.dataset.target===name));
+  document.querySelectorAll('#tabbar .tab').forEach(t=>t.classList.toggle('active', t.dataset.target===name));
+  document.getElementById('content').scrollTop = 0;
+}
+document.querySelectorAll('.tstab, #tabbar .tab').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    showScreen(el.dataset.target);
+    tg?.HapticFeedback?.impactOccurred('light');
+  });
+});
+
+/* ---------------- TOAST ---------------- */
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=> t.classList.remove('show'), 1800);
+}
+
+/* ---------------- EMISSION ---------------- */
+const emissionCard = document.getElementById('emissionCard');
+const statusText = document.getElementById('statusText');
+const caption = document.getElementById('counterCaption');
+let emissionActive = false;
+document.getElementById('emissionToggle').addEventListener('click', ()=>{
+  emissionActive = !emissionActive;
+  emissionCard.classList.toggle('is-active', emissionActive);
+  statusText.textContent = emissionActive ? 'выброс' : 'спокойно';
+  caption.textContent = emissionActive ? 'идёт прямо сейчас' : 'прошло с последнего выброса';
+  if(emissionActive) toast('Демо: статус переключён на «выброс»');
+});
+let totalSeconds = 3*3600+47*60+12;
+setInterval(()=>{
+  if(emissionActive) return;
+  totalSeconds++;
+  const h=String(Math.floor(totalSeconds/3600)).padStart(2,'0');
+  const m=String(Math.floor((totalSeconds%3600)/60)).padStart(2,'0');
+  const s=String(totalSeconds%60).padStart(2,'0');
+  document.getElementById('counterDigits').textContent = `${h}:${m}:${s}`;
+}, 1000);
+document.querySelectorAll('#regionRow .rchip').forEach(chip=>{
+  chip.addEventListener('click', ()=>{
+    document.querySelectorAll('#regionRow .rchip').forEach(c=>c.classList.remove('active'));
+    chip.classList.add('active');
+    document.getElementById('curRegion').textContent = chip.dataset.region;
+    toast('Регион переключён на ' + chip.dataset.region);
+  });
+});
+
+/* ---------------- PROMO ---------------- */
+const promoTable = document.getElementById('promoTable');
+promos.forEach(p=>{
+  const row = document.createElement('div');
+  row.className = 'trow';
+  row.innerHTML = `
+    <div class="trow-ic">%</div>
+    <div class="trow-body"><div class="trow-title">${p.code}</div><div class="trow-sub ${p.kind}">${p.status}</div></div>
+    <button class="trow-val">копир.</button>`;
+  row.querySelector('.trow-val').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    navigator.clipboard?.writeText(p.code).catch(()=>{});
+    const btn = e.currentTarget;
+    btn.textContent = '✓ скопир.';
+    btn.classList.add('copied');
+    toast('Промокод «'+p.code+'» скопирован');
+    setTimeout(()=>{ btn.textContent='копир.'; btn.classList.remove('copied'); }, 1600);
+  });
+  promoTable.appendChild(row);
+});
+
+/* ---------------- GUIDES ---------------- */
+const guidesTable = document.getElementById('guidesTable');
+const guideDetail = document.getElementById('guideDetail');
+const guidesList = document.getElementById('guidesList');
+guides.forEach((g,i)=>{
+  const row = document.createElement('div');
+  row.className = 'trow';
+  row.innerHTML = `<div class="trow-ic">▤</div><div class="trow-body"><div class="trow-title">${g.title}</div><div class="trow-sub">${g.meta}</div></div>`;
+  row.addEventListener('click', ()=> openGuide(i));
+  guidesTable.appendChild(row);
+});
+function openGuide(i){
+  const g = guides[i];
+  guideDetail.innerHTML = `
+    <div class="detail-back" id="guideBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к гайдам</div>
+    <div class="item-head"><div class="item-thumb">▤</div><div><div class="item-name">${g.title}</div><div class="item-meta">${g.meta}</div></div></div>
+    <div class="guide-steps">${g.steps.map((s,idx)=>`<div class="gstep"><div class="gstep-n">${String(idx+1).padStart(2,'0')}</div><div class="gstep-t">${s}</div></div>`).join('')}</div>`;
+  function closeGuide(){
+    guideDetail.classList.remove('active'); guidesList.style.display='block';
+    setBackButton(null);
+  }
+  guideDetail.querySelector('#guideBack').addEventListener('click', closeGuide);
+  guidesList.style.display = 'none';
+  guideDetail.classList.add('active');
+  setBackButton(closeGuide);
+}
+
+/* ---------------- AUCTION ---------------- */
+const auctionTable = document.getElementById('auctionTable');
+const auctionList = document.getElementById('auctionList');
+const auctionDetail = document.getElementById('auctionDetail');
+function renderAuctionList(filter){
+  auctionTable.innerHTML = '';
+  auctionItems
+    .filter(it => !filter || it.name.toLowerCase().includes(filter.toLowerCase()))
+    .forEach((it, idx)=>{
+      const realIdx = auctionItems.indexOf(it);
+      const row = document.createElement('div');
+      row.className = 'trow';
+      const arrow = it.up ? '▲' : (it.change<0?'▼':'·');
+      const cls = it.up && it.change>0 ? 'up' : (it.change<0 ? 'down' : '');
+      row.innerHTML = `
+        <div class="trow-ic">${it.icon}</div>
+        <div class="trow-body"><div class="trow-title">${it.name}</div><div class="trow-sub">${it.cat}</div></div>
+        <div class="trow-price"><b>${it.price} ₽</b><span class="${cls}">${arrow} ${Math.abs(it.change)}%</span></div>`;
+      row.addEventListener('click', ()=> openItem(realIdx));
+      auctionTable.appendChild(row);
+    });
+}
+renderAuctionList('');
+document.getElementById('auctionSearch').addEventListener('input', (e)=> renderAuctionList(e.target.value));
+
+function openItem(idx){
+  const it = auctionItems[idx];
+  const buyRows = it.buy.map(([qty,price])=>`<div class="book-row buy"><span>${qty}</span><span>${price.toLocaleString('ru-RU')} ₽</span></div>`).join('');
+  const sellRows = it.sell.map(([price,qty])=>`<div class="book-row sell"><span>${price.toLocaleString('ru-RU')} ₽</span><span>${qty}</span></div>`).join('');
+  auctionDetail.innerHTML = `
+    <div class="detail-back" id="auctionBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к бирже</div>
+    <div class="item-head"><div class="item-thumb">${it.icon}</div><div><div class="item-name">${it.name}</div><div class="item-meta">${it.cat}</div></div></div>
+    <div class="stat-row">
+      <div class="stat"><div class="stat-label">Цена</div><div class="stat-val">${it.price} ₽</div></div>
+      <div class="stat"><div class="stat-label">За 24ч</div><div class="stat-val ${it.change>=0?'up':''}" style="${it.change<0?'color:var(--sell)':''}">${it.change>0?'+':''}${it.change}%</div></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-tabs"><div class="ctab active">24ч</div><div class="ctab">7д</div><div class="ctab">30д</div></div>
+      <svg viewBox="0 0 300 70" width="100%" height="70" preserveAspectRatio="none">
+        <polyline points="${sparkline()}" fill="none" stroke="#d0a244" stroke-width="1.5"/>
+      </svg>
+    </div>
+    <div class="actions">
+      <div class="btn buy" id="btnBuy">Заявка на покупку</div>
+      <div class="btn sell" id="btnSell">Заявка на продажу</div>
+    </div>
+    <div class="panel-label">стакан цен</div>
+    <div class="book">
+      <div class="book-col"><div class="book-head">Покупка</div>${buyRows}</div>
+      <div class="book-col"><div class="book-head">Продажа</div>${sellRows}</div>
+    </div>`;
+  function closeItem(){
+    auctionDetail.classList.remove('active'); auctionList.style.display='block';
+    setBackButton(null);
+  }
+  auctionDetail.querySelector('#auctionBack').addEventListener('click', closeItem);
+  auctionDetail.querySelector('#btnBuy').addEventListener('click', ()=>{
+    toast('Заявка на покупку «'+it.name+'» создана');
+    tg?.HapticFeedback?.notificationOccurred('success');
+  });
+  auctionDetail.querySelector('#btnSell').addEventListener('click', ()=>{
+    toast('Заявка на продажу «'+it.name+'» создана');
+    tg?.HapticFeedback?.notificationOccurred('success');
+  });
+  auctionList.style.display = 'none';
+  auctionDetail.classList.add('active');
+  setBackButton(closeItem);
+}
+function sparkline(){
+  const pts = Array.from({length:10}, ()=> 15 + Math.random()*45);
+  return pts.map((y,i)=> `${i*(300/9)},${70-y}`).join(' ');
+}
+
+/* ---------------- MAP ---------------- */
+document.getElementById('mapOpenBtn').addEventListener('click', ()=> toast('В проде — ссылка на внешнюю карту'));
+</script>
+
+</body>
+</html>
