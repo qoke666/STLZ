@@ -173,6 +173,44 @@
   .gstep-n{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--amber); flex-shrink:0; width:18px; }
   .gstep-t{ font-size:12.5px; line-height:1.4; color:var(--bone-dim); }
 
+  /* ---------- TRADE / EXCHANGE ---------- */
+  .trade-card{ border:1px solid var(--line); background:var(--bg-panel); padding:13px 14px; margin-bottom:9px; cursor:pointer; }
+  .trade-card:active{ background:var(--bg-panel-2); }
+  .trade-swap{ display:flex; align-items:center; gap:9px; margin-bottom:10px; }
+  .trade-item{ flex:1; min-width:0; }
+  .trade-item-label{ font-family:'JetBrains Mono', monospace; font-size:9px; text-transform:uppercase; letter-spacing:0.06em; color:var(--bone-faint); margin-bottom:2px; }
+  .trade-item-name{ font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .trade-arrow{ color:var(--bone-faint); flex-shrink:0; }
+  .trade-arrow svg{ width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.6; }
+
+  .trade-user{ display:flex; align-items:center; gap:8px; padding-top:10px; border-top:1px solid var(--line-soft); }
+  .trade-user-ic{ width:22px; height:22px; border-radius:2px; background:var(--bg-panel-2); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--bone-dim); flex-shrink:0; }
+  .trade-user-name{ font-size:11.5px; color:var(--bone-dim); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .badge{ font-family:'JetBrains Mono', monospace; font-size:9.5px; letter-spacing:0.03em; padding:2px 6px; border:1px solid; flex-shrink:0; white-space:nowrap; }
+  .badge.verified{ color:var(--buy); border-color:var(--buy); }
+  .badge.warn{ color:var(--amber); border-color:var(--amber); }
+  .badge.scam{ color:var(--sell); border-color:var(--sell); }
+  .badge.neutral{ color:var(--bone-faint); border-color:var(--line); }
+
+  .profile-card{ border:1px solid var(--line); background:var(--bg-panel); padding:16px; margin-bottom:16px; }
+  .profile-top{ display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .profile-name{ font-family:'Oswald', sans-serif; font-weight:600; font-size:14.5px; margin-bottom:5px; }
+  .profile-stats{ display:flex; border-top:1px solid var(--line-soft); padding-top:12px; }
+  .pstat{ flex:1; text-align:center; }
+  .pstat + .pstat{ border-left:1px solid var(--line-soft); }
+  .pstat-val{ font-family:'JetBrains Mono', monospace; font-size:16px; color:var(--bone); margin-bottom:3px; }
+  .pstat-label{ font-family:'JetBrains Mono', monospace; font-size:8.7px; text-transform:uppercase; letter-spacing:0.04em; color:var(--bone-faint); }
+
+  .confirm-box{ border:1px solid var(--amber); background:var(--bg-panel); padding:14px; margin-top:16px; }
+  .confirm-box p{ font-size:12px; color:var(--bone-dim); line-height:1.5; margin-bottom:12px; }
+  .confirm-box .actions{ margin-bottom:0; }
+  .confirm-box .btn.done{ border-color:var(--buy); color:var(--buy); }
+  .confirm-box .btn.fail{ border-color:var(--sell); color:var(--sell); }
+
+  .fab{ position:absolute; right:16px; bottom:78px; width:44px; height:44px; border-radius:2px; background:var(--amber); color:var(--bg-void); display:flex; align-items:center; justify-content:center; box-shadow:0 4px 14px rgba(0,0,0,0.4); cursor:pointer; z-index:6; }
+  .fab svg{ width:18px; height:18px; stroke:var(--bg-void); fill:none; stroke-width:2.2; }
+
   /* ---------- MAP SCREEN ---------- */
   .map-placeholder{ border:1px solid var(--line); background:var(--bg-panel); padding:40px 20px; text-align:center; }
   .map-placeholder svg{ width:28px; height:28px; stroke:var(--bone-faint); fill:none; stroke-width:1.3; margin-bottom:12px; }
@@ -213,6 +251,7 @@
   <div class="tabstrip" id="tabstrip">
     <div class="tstab active" data-target="emission">выброс</div>
     <div class="tstab" data-target="auction">аукцион</div>
+    <div class="tstab" data-target="trade">обмен</div>
     <div class="tstab" data-target="promo">промокоды</div>
     <div class="tstab" data-target="guides">гайды</div>
     <div class="tstab" data-target="map">карта</div>
@@ -251,6 +290,16 @@
       <div class="detail" id="auctionDetail"></div>
     </div>
 
+    <!-- ===== TRADE / EXCHANGE ===== -->
+    <div class="screen" data-screen="trade">
+      <div id="tradeList">
+        <div class="panel-label">прямой обмен между игроками <b>· не аукцион</b></div>
+        <div id="tradeFeed"></div>
+      </div>
+      <div class="detail" id="tradeDetail"></div>
+      <div class="fab" id="tradeCreateBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+    </div>
+
     <!-- ===== PROMO ===== -->
     <div class="screen" data-screen="promo">
       <div class="panel-label">свежие промокоды</div>
@@ -281,6 +330,7 @@
   <div class="tabbar" id="tabbar">
     <div class="tab active" data-target="emission"><svg viewBox="0 0 24 24"><path d="M12 2v6M12 16v6M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M2 12h6M16 12h6M4.9 19.1l4.2-4.2M14.9 9.1l4.2-4.2"/></svg><div class="tab-label">Выброс</div></div>
     <div class="tab" data-target="auction"><svg viewBox="0 0 24 24"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg><div class="tab-label">Аукцион</div></div>
+    <div class="tab" data-target="trade"><svg viewBox="0 0 24 24"><path d="M17 3l4 4-4 4M21 7H9M7 21l-4-4 4-4M3 17h12"/></svg><div class="tab-label">Обмен</div></div>
     <div class="tab" data-target="promo"><svg viewBox="0 0 24 24"><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6M2 7h20v5H2zM12 22V7M7 7a2.5 2.5 0 0 1 0-5C9.5 2 12 7 12 7s2.5-5 5-5a2.5 2.5 0 0 1 0 5"/></svg><div class="tab-label">Промо</div></div>
     <div class="tab" data-target="guides"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z"/></svg><div class="tab-label">Гайды</div></div>
     <div class="tab" data-target="map"><svg viewBox="0 0 24 24"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg><div class="tab-label">Карта</div></div>
@@ -360,6 +410,21 @@ const auctionItems = [
   {icon:'🥫', name:'Тушёнка «Мясо»', cat:'Еда', price:'640', change:0.0, up:true,
     buy:[[9214,610],[6785,600]], sell:[[645,900],[660,420]]},
 ];
+
+const trades = [
+  {give:'Артефакт «Слеза»', want:'АКМ-74 obr.2 + 20 000 ₽', user:'Prizrak_88', trust:'verified', days:214, done:47, disputed:0},
+  {give:'2х Аптечка армейская', want:'Патроны 7.62мм x300', user:'Novichok_zoni', trust:'neutral', days:3, done:1, disputed:0},
+  {give:'Костюм СЭВ-15', want:'Артефакт любой (кроме бижутерии)', user:'Xoma_1997', trust:'warn', days:58, done:6, disputed:2},
+  {give:'Обвес ПБС + прицел', want:'Тушёнка x50 или эквивалент', user:'ryba_net', trust:'scam', days:11, done:2, disputed:5},
+];
+function badgeInfo(t){
+  return {
+    verified:{cls:'verified', label:'✓ проверенный'},
+    neutral: {cls:'neutral',  label:'новый трейдер'},
+    warn:    {cls:'warn',     label:'⚠ есть споры'},
+    scam:    {cls:'scam',     label:'⚠ возможный скам'},
+  }[t];
+}
 
 /* ---------------- TAB SWITCHING ---------------- */
 function showScreen(name){
@@ -534,6 +599,108 @@ function sparkline(){
   const pts = Array.from({length:10}, ()=> 15 + Math.random()*45);
   return pts.map((y,i)=> `${i*(300/9)},${70-y}`).join(' ');
 }
+
+/* ---------------- TRADE / EXCHANGE ---------------- */
+const tradeFeed = document.getElementById('tradeFeed');
+const tradeList = document.getElementById('tradeList');
+const tradeDetail = document.getElementById('tradeDetail');
+
+function renderTradeFeed(){
+  tradeFeed.innerHTML = '';
+  trades.forEach((t, idx)=>{
+    const b = badgeInfo(t.trust);
+    const card = document.createElement('div');
+    card.className = 'trade-card';
+    card.innerHTML = `
+      <div class="trade-swap">
+        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${t.give}</div></div>
+        <div class="trade-arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${t.want}</div></div>
+      </div>
+      <div class="trade-user">
+        <div class="trade-user-ic">${t.user.slice(0,2).toUpperCase()}</div>
+        <div class="trade-user-name">${t.user} · ${t.days} дн. в аппе</div>
+        <div class="badge ${b.cls}">${b.label}</div>
+      </div>`;
+    card.addEventListener('click', ()=> openTrade(idx));
+    tradeFeed.appendChild(card);
+  });
+}
+renderTradeFeed();
+
+function openTrade(idx){
+  const t = trades[idx];
+  const b = badgeInfo(t.trust);
+  tradeDetail.innerHTML = `
+    <div class="detail-back" id="tradeBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к обменам</div>
+
+    <div class="profile-card">
+      <div class="profile-top">
+        <div class="trade-user-ic" style="width:38px;height:38px;font-size:13px;">${t.user.slice(0,2).toUpperCase()}</div>
+        <div style="flex:1;min-width:0;">
+          <div class="profile-name">${t.user}</div>
+          <div class="badge ${b.cls}">${b.label}</div>
+        </div>
+      </div>
+      <div class="profile-stats">
+        <div class="pstat"><div class="pstat-val">${t.days}</div><div class="pstat-label">дней в аппе</div></div>
+        <div class="pstat"><div class="pstat-val" style="color:var(--buy)">${t.done}</div><div class="pstat-label">сделок закрыто</div></div>
+        <div class="pstat"><div class="pstat-val" style="color:${t.disputed>0?'var(--sell)':'var(--bone-faint)'}">${t.disputed}</div><div class="pstat-label">споров</div></div>
+      </div>
+    </div>
+
+    <div class="panel-label">предложение</div>
+    <div class="trade-card" style="cursor:default;">
+      <div class="trade-swap">
+        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${t.give}</div></div>
+        <div class="trade-arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${t.want}</div></div>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top:14px;">
+      <div class="btn buy" id="tradeRespondBtn">Откликнуться</div>
+    </div>
+
+    <div id="tradeConfirmSlot"></div>
+  `;
+  tradeDetail.querySelector('#tradeBack').addEventListener('click', closeTrade);
+  tradeDetail.querySelector('#tradeRespondBtn').addEventListener('click', (e)=>{
+    e.target.remove();
+    toast('Отклик отправлен · ждём подтверждения от ' + t.user);
+    tg?.HapticFeedback?.impactOccurred('light');
+    const slot = document.getElementById('tradeConfirmSlot');
+    slot.innerHTML = `
+      <div class="confirm-box">
+        <p><b style="color:var(--amber)">Сделка на согласовании.</b> После того как обмен реально произошёл в игре — отметь честно, состоялся ли он. Вторая сторона отмечает то же самое отдельно.</p>
+        <div class="actions confirm-actions">
+          <div class="btn done" id="btnDone">Обмен состоялся</div>
+          <div class="btn fail" id="btnFail">Не состоялся</div>
+        </div>
+      </div>`;
+    slot.querySelector('#btnDone').addEventListener('click', ()=>{
+      toast('Отмечено: сделка завершена ✓ — попадёт в статистику обеих сторон');
+      tg?.HapticFeedback?.notificationOccurred('success');
+      slot.innerHTML = '<div class="confirm-box"><p style="margin:0;">Готово. Ждём подтверждения от второй стороны, чтобы закрыть сделку.</p></div>';
+    });
+    slot.querySelector('#btnFail').addEventListener('click', ()=>{
+      toast('Отмечено: сделка не состоялась — уйдёт в спорные');
+      tg?.HapticFeedback?.notificationOccurred('warning');
+      slot.innerHTML = '<div class="confirm-box"><p style="margin:0;">Зафиксировано как несостоявшаяся. Если вторая сторона подтвердит обратное — сделка попадёт в спорные, не автоматически в бан.</p></div>';
+    });
+  });
+  tradeList.style.display = 'none';
+  tradeDetail.classList.add('active');
+  setBackButton(closeTrade);
+}
+function closeTrade(){
+  tradeDetail.classList.remove('active'); tradeList.style.display='block';
+  setBackButton(null);
+}
+document.getElementById('tradeCreateBtn').addEventListener('click', ()=>{
+  toast('Демо: тут откроется форма «отдаю / хочу»');
+  tg?.HapticFeedback?.impactOccurred('light');
+});
 
 /* ---------------- MAP ---------------- */
 document.getElementById('mapOpenBtn').addEventListener('click', ()=> toast('В проде — ссылка на внешнюю карту'));
