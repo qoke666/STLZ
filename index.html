@@ -240,13 +240,23 @@
   <div class="header">
     <div class="id-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg></div>
     <div class="id-text">
-      <span class="id-name" id="user-nickname">Загрузка данных...</span>
-      <span class="scam-tag" id="user-scam-tag" style="display: none;">SCAM</span>
+      <div class="id-name">Dan_Zaraza</div>
+      <div class="id-sub">EU · привязан</div>
     </div>
     <div class="header-icons">
       <div class="hicon"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></div>
       <div class="hicon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 0 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/></svg></div>
     </div>
+  </div>
+
+  <div class="tabstrip" id="tabstrip">
+    <div class="tstab active" data-target="emission">выброс</div>
+    <div class="tstab" data-target="auction">аукцион</div>
+    <div class="tstab" data-target="trade">обмен</div>
+    <div class="tstab" data-target="squad">тиммейты</div>
+    <div class="tstab" data-target="promo">промокоды</div>
+    <div class="tstab" data-target="guides">гайды</div>
+    <div class="tstab" data-target="map">карта</div>
   </div>
 
   <div class="content" id="content">
@@ -322,10 +332,11 @@
     <!-- ===== MAP ===== -->
     <div class="screen" data-screen="map">
       <div class="panel-label">карта зоны</div>
-      <div class="map-placeholder" style="text-align: center; padding: 40px 20px; color: #888; background: #1a1a1a; border-radius: 12px; margin: 15px; border: 1px dashed #444;">
-       <h3 style="color: #ffcc00; margin-bottom: 10px;">Сектор недоступен</h3>
-       <p style="font-size: 14px; margin: 0;">Ведутся картографические работы (Coming Soon)</p>
-     </div>
+      <div class="map-placeholder">
+        <svg viewBox="0 0 24 24"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+        <p>Своя карта пока не решена — открываем внешнюю интерактивную карту в браузере, чтобы не дублировать чужую работу.</p>
+        <div class="btn" style="border-color:var(--amber); color:var(--amber);" id="mapOpenBtn">Открыть карту ↗</div>
+      </div>
     </div>
 
   </div>
@@ -1073,32 +1084,6 @@ function closeSquadCreate(){
 }
 loadSquad();
 
-  }
-loadSquad();
-
-// Функция, которая подставляет никнейм и проверяет на скам
-function updateProfileUI(nickname, isScammer) {
-    const nicknameElement = document.getElementById('user-nickname');
-    const scamTagElement = document.getElementById('user-scam-tag');
-    
-    if (nicknameElement) {
-        nicknameElement.textContent = nickname;
-    }
-    
-    if (scamTagElement) {
-        if (isScammer === true) {
-            scamTagElement.style.display = 'inline-block';
-        } else {
-            scamTagElement.style.display = 'none';
-        }
-    }
-}
-
-setTimeout(() => {
-    updateProfileUI('Новичок', false);
-}, 500); 
-
-</script>
 </script>
 
 </body>
