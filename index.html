@@ -253,6 +253,7 @@
     <div class="tstab active" data-target="emission">выброс</div>
     <div class="tstab" data-target="auction">аукцион</div>
     <div class="tstab" data-target="trade">обмен</div>
+    <div class="tstab" data-target="squad">тиммейты</div>
     <div class="tstab" data-target="promo">промокоды</div>
     <div class="tstab" data-target="guides">гайды</div>
     <div class="tstab" data-target="map">карта</div>
@@ -301,10 +302,21 @@
       <div class="fab" id="tradeCreateBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
     </div>
 
+    <!-- ===== SQUAD / TEAMMATES ===== -->
+    <div class="screen" data-screen="squad">
+      <div id="squadList">
+        <div class="panel-label">ищут пачку прямо сейчас</div>
+        <div id="squadFeed"></div>
+      </div>
+      <div class="detail" id="squadDetail"></div>
+      <div class="fab" id="squadCreateBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+    </div>
+
     <!-- ===== PROMO ===== -->
     <div class="screen" data-screen="promo">
       <div class="panel-label">свежие промокоды</div>
       <div class="table" id="promoTable"></div>
+      <div class="fab" id="promoAddBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
     </div>
 
     <!-- ===== GUIDES ===== -->
@@ -314,6 +326,7 @@
         <div class="table" id="guidesTable"></div>
       </div>
       <div class="detail" id="guideDetail"></div>
+      <div class="fab" id="guideAddBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
     </div>
 
     <!-- ===== MAP ===== -->
@@ -332,6 +345,7 @@
     <div class="tab active" data-target="emission"><svg viewBox="0 0 24 24"><path d="M12 2v6M12 16v6M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M2 12h6M16 12h6M4.9 19.1l4.2-4.2M14.9 9.1l4.2-4.2"/></svg><div class="tab-label">Выброс</div></div>
     <div class="tab" data-target="auction"><svg viewBox="0 0 24 24"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg><div class="tab-label">Аукцион</div></div>
     <div class="tab" data-target="trade"><svg viewBox="0 0 24 24"><path d="M17 3l4 4-4 4M21 7H9M7 21l-4-4 4-4M3 17h12"/></svg><div class="tab-label">Обмен</div></div>
+    <div class="tab" data-target="squad"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M2 21v-1a6 6 0 0 1 12 0v1"/><circle cx="18" cy="9" r="2.5"/><path d="M15.5 21v-1a4.5 4.5 0 0 1 6.5-4"/></svg><div class="tab-label">Тиммейты</div></div>
     <div class="tab" data-target="promo"><svg viewBox="0 0 24 24"><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6M2 7h20v5H2zM12 22V7M7 7a2.5 2.5 0 0 1 0-5C9.5 2 12 7 12 7s2.5-5 5-5a2.5 2.5 0 0 1 0 5"/></svg><div class="tab-label">Промо</div></div>
     <div class="tab" data-target="guides"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z"/></svg><div class="tab-label">Гайды</div></div>
     <div class="tab" data-target="map"><svg viewBox="0 0 24 24"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg><div class="tab-label">Карта</div></div>
@@ -354,14 +368,14 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // ВАЖНО: любая ошибка здесь (опечатка в ключе, не загрузился CDN, блокировщик
 // рекламы порезал jsdelivr) НЕ должна ронять весь остальной интерфейс —
 // поэтому вся инициализация обёрнута в try/catch.
-let supabase = null;
+let db = null;
 try {
   if (SUPABASE_URL.startsWith('http') && window.supabase) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
 } catch (err) {
   console.error('Supabase init failed, работаем на демо-данных:', err);
-  supabase = null;
+  db = null;
 }
 
 /* ---------------- TELEGRAM WEBAPP INTEGRATION ---------------- */
@@ -397,14 +411,45 @@ function setBackButton(onBack){
   }
 }
 
-/* ---------------- DATA ---------------- */
+/* ---------------- API HELPER ---------------- */
+// Работаем "вживую" только если открыто внутри Telegram (есть initData для подписи)
+// И бэкенд реально задеплоен. Если что-то из этого не так — падаем в демо-режим,
+// ничего не ломая (важно после сегодняшнего урока с синтаксической ошибкой).
+const isTelegram = !!(tg && tg.initData);
+let myCharacters = [];  // персонажи текущего юзера, подтягиваются при старте, если isTelegram
+
+async function callApi(path, payload = {}) {
+  if (!isTelegram) { toast('Открой мини-апп внутри Telegram, чтобы это сохранилось по-настоящему'); return null; }
+  try {
+    const res = await fetch('/api/' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: tg.initData, ...payload }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'api error');
+    return json;
+  } catch (err) {
+    console.error('callApi(' + path + ') failed:', err);
+    toast('Бэкенд пока не отвечает — проверь, что /api задеплоен и заведены env-переменные');
+    return null;
+  }
+}
+
+async function loadMyCharacters() {
+  if (!isTelegram) return;
+  const res = await callApi('characters', { action: 'list' });
+  if (res) myCharacters = res.characters || [];
+}
+
+
 const promos = [
   {code:'EXBO-SUMMER26', status:'истекает через 4 ч', kind:'sell'},
   {code:'STALZONE-FOREVER', status:'бессрочный', kind:'buy'},
   {code:'ZONE-DROP-14', status:'истекает через 27 мин', kind:'sell'},
 ];
 
-const guides = [
+let guides = [
   {title:'Пролог: выход из подземелья', meta:'7 шагов · сюжет', steps:[
     'Осмотри тело у лестницы — забери аптечку и нож.',
     'Спустись на уровень ниже, держась левой стены.',
@@ -435,7 +480,7 @@ const auctionItems = [
     buy:[[9214,610],[6785,600]], sell:[[645,900],[660,420]]},
 ];
 
-const trades = [
+let trades = [
   {give:'Артефакт «Слеза»', want:'АКМ-74 obr.2 + 20 000 ₽', user:'Prizrak_88', days:214, done:47, disputed:1},
   {give:'2х Аптечка армейская', want:'Патроны 7.62мм x300', user:'Novichok_zoni', days:3, done:1, disputed:0},
   {give:'Костюм СЭВ-15', want:'Артефакт любой (кроме бижутерии)', user:'Xoma_1997', days:58, done:6, disputed:2},
@@ -531,9 +576,9 @@ function renderPromoTable(list){
 }
 
 async function loadPromos(){
-  if (!supabase) { renderPromoTable(promos); return; }
+  if (!db) { renderPromoTable(promos); return; }
   try {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('promo_codes')
       .select('code, expires_at')
       .order('created_at', { ascending:false });
@@ -558,18 +603,32 @@ loadPromos();
 const guidesTable = document.getElementById('guidesTable');
 const guideDetail = document.getElementById('guideDetail');
 const guidesList = document.getElementById('guidesList');
-guides.forEach((g,i)=>{
-  const row = document.createElement('div');
-  row.className = 'trow';
-  row.innerHTML = `<div class="trow-ic">▤</div><div class="trow-body"><div class="trow-title">${g.title}</div><div class="trow-sub">${g.meta}</div></div>`;
-  row.addEventListener('click', ()=> openGuide(i));
-  guidesTable.appendChild(row);
-});
+function renderGuidesTable(){
+  guidesTable.innerHTML = '';
+  guides.forEach((g,i)=>{
+    const row = document.createElement('div');
+    row.className = 'trow';
+    row.innerHTML = `<div class="trow-ic">▤</div><div class="trow-body"><div class="trow-title">${g.title}</div><div class="trow-sub">${g.meta||''}</div></div>`;
+    row.addEventListener('click', ()=> openGuide(i));
+    guidesTable.appendChild(row);
+  });
+}
+async function loadGuides(){
+  if (!db) { renderGuidesTable(); return; }
+  try {
+    const { data, error } = await db.from('guides').select('title, meta, steps').order('created_at', { ascending:false });
+    if (error || !data || !data.length) throw error || new Error('empty');
+    guides = data;
+  } catch (err) {
+    console.error('Supabase guides error, показываем демо:', err);
+  }
+  renderGuidesTable();
+}
 function openGuide(i){
   const g = guides[i];
   guideDetail.innerHTML = `
     <div class="detail-back" id="guideBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к гайдам</div>
-    <div class="item-head"><div class="item-thumb">▤</div><div><div class="item-name">${g.title}</div><div class="item-meta">${g.meta}</div></div></div>
+    <div class="item-head"><div class="item-thumb">▤</div><div><div class="item-name">${g.title}</div><div class="item-meta">${g.meta||''}</div></div></div>
     <div class="guide-steps">${g.steps.map((s,idx)=>`<div class="gstep"><div class="gstep-n">${String(idx+1).padStart(2,'0')}</div><div class="gstep-t">${s}</div></div>`).join('')}</div>`;
   function closeGuide(){
     guideDetail.classList.remove('active'); guidesList.style.display='block';
@@ -580,6 +639,27 @@ function openGuide(i){
   guideDetail.classList.add('active');
   setBackButton(closeGuide);
 }
+loadGuides();
+
+/* ---------------- ADMIN: добавление гайдов и промокодов прямо из аппа ---------------- */
+// Кнопки видны всем, но бэкенд (admin-add-*.js) молча откажет всем, кроме ADMIN_TELEGRAM_ID —
+// так что для обычных игроков это просто не сработает, без палева "админ-панели" в интерфейсе.
+document.getElementById('promoAddBtn').addEventListener('click', async ()=>{
+  const code = prompt('Код промокода:'); if (!code) return;
+  const days = prompt('Дней до истечения (пусто = бессрочный):');
+  const expiresAt = days ? new Date(Date.now() + Number(days)*86400000).toISOString() : null;
+  const res = await callApi('admin-add-promo', { code, expiresAt });
+  if (res) { toast('Промокод добавлен'); loadPromos(); }
+});
+document.getElementById('guideAddBtn').addEventListener('click', async ()=>{
+  const title = prompt('Название гайда:'); if (!title) return;
+  const meta = prompt('Подпись (например "7 шагов · сюжет"):') || '';
+  const stepsRaw = prompt('Шаги, по одному на строке (раздели символом |):');
+  const steps = (stepsRaw||'').split('|').map(s=>s.trim()).filter(Boolean);
+  if (!steps.length) { toast('Нужен хотя бы один шаг'); return; }
+  const res = await callApi('admin-add-guide', { title, meta, steps });
+  if (res) { toast('Гайд добавлен'); loadGuides(); }
+});
 
 /* ---------------- AUCTION ---------------- */
 const auctionTable = document.getElementById('auctionTable');
@@ -654,7 +734,43 @@ function sparkline(){
   return pts.map((y,i)=> `${i*(300/9)},${70-y}`).join(' ');
 }
 
-/* ---------------- TRADE / EXCHANGE ---------------- */
+/* ---------------- CHARACTER LINK (переиспользуется в Обмене и Тиммейтах) ---------------- */
+function characterLinkFormHtml() {
+  return `
+    <div class="confirm-box">
+      <p><b style="color:var(--amber)">Сначала привяжи персонажа.</b> Ник и фракция нужны, чтобы твои объявления были доверенными, а не анонимными.</p>
+      <input id="clNickname" placeholder="Ник в игре" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'JetBrains Mono',monospace; font-size:12px; padding:9px; margin-bottom:8px;">
+      <input id="clFaction" placeholder="Фракция" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'JetBrains Mono',monospace; font-size:12px; padding:9px; margin-bottom:8px;">
+      <div class="region-row" id="clRegionRow" style="margin-bottom:12px;">
+        <div class="rchip active" data-region="EU">EU</div><div class="rchip" data-region="RU">RU</div>
+        <div class="rchip" data-region="NA">NA</div><div class="rchip" data-region="SEA">SEA</div>
+      </div>
+      <div class="btn buy" id="clSubmit">Привязать персонажа</div>
+    </div>`;
+}
+function wireCharacterLinkForm(container, onDone) {
+  let region = 'EU';
+  container.querySelectorAll('#clRegionRow .rchip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      container.querySelectorAll('#clRegionRow .rchip').forEach(c=>c.classList.remove('active'));
+      chip.classList.add('active'); region = chip.dataset.region;
+    });
+  });
+  container.querySelector('#clSubmit').addEventListener('click', async ()=>{
+    const nickname = container.querySelector('#clNickname').value.trim();
+    const faction = container.querySelector('#clFaction').value.trim();
+    if (!nickname || !faction) { toast('Заполни ник и фракцию'); return; }
+    const res = await callApi('characters', { action:'create', nickname, faction, region });
+    if (res?.character) {
+      myCharacters.push(res.character);
+      toast('Персонаж «' + nickname + '» привязан');
+      tg?.HapticFeedback?.notificationOccurred('success');
+      onDone();
+    }
+  });
+}
+
+
 const tradeFeed = document.getElementById('tradeFeed');
 const tradeList = document.getElementById('tradeList');
 const tradeDetail = document.getElementById('tradeDetail');
@@ -680,7 +796,7 @@ function renderTradeFeed(){
     tradeFeed.appendChild(card);
   });
 }
-renderTradeFeed();
+loadTrades();
 
 function openTrade(idx){
   const t = trades[idx];
@@ -697,7 +813,7 @@ function openTrade(idx){
         </div>
       </div>
       <div class="profile-stats">
-        <div class="pstat"><div class="pstat-val">${t.days}</div><div class="pstat-label">дней в аппе</div></div>
+        <div class="pstat"><div class="pstat-val">${t.days ?? '—'}</div><div class="pstat-label">дней в аппе</div></div>
         <div class="pstat"><div class="pstat-val" style="color:var(--buy)">${t.done}</div><div class="pstat-label">сделок закрыто</div></div>
         <div class="pstat"><div class="pstat-val" style="color:${t.disputed>0?'var(--sell)':'var(--bone-faint)'}">${t.disputed}</div><div class="pstat-label">споров</div></div>
       </div>
@@ -719,7 +835,13 @@ function openTrade(idx){
     <div id="tradeConfirmSlot"></div>
   `;
   tradeDetail.querySelector('#tradeBack').addEventListener('click', closeTrade);
-  tradeDetail.querySelector('#tradeRespondBtn').addEventListener('click', (e)=>{
+  let dealId = null; // заполнится после реального отклика, если мы онлайн
+  tradeDetail.querySelector('#tradeRespondBtn').addEventListener('click', async (e)=>{
+    if (isTelegram && t.id) {
+      const res = await callApi('trades-respond', { tradeId: t.id });
+      if (!res) return; // callApi уже показал тост с ошибкой
+      dealId = res.deal.id;
+    }
     e.target.remove();
     toast('Отклик отправлен · ждём подтверждения от ' + t.user);
     tg?.HapticFeedback?.impactOccurred('light');
@@ -732,7 +854,11 @@ function openTrade(idx){
           <div class="btn fail" id="btnFail">Не состоялся</div>
         </div>
       </div>`;
-    slot.querySelector('#btnDone').addEventListener('click', ()=>{
+    slot.querySelector('#btnDone').addEventListener('click', async ()=>{
+      if (isTelegram && dealId) {
+        const res = await callApi('trades-confirm', { dealId, confirmed:true });
+        if (!res) return;
+      }
       toast('Отмечено: сделка завершена ✓ — попадёт в статистику обеих сторон');
       tg?.HapticFeedback?.notificationOccurred('success');
       slot.innerHTML = '<div class="confirm-box"><p style="margin:0;">Готово. Ждём подтверждения от второй стороны, чтобы закрыть сделку.</p></div>';
@@ -750,7 +876,12 @@ function openTrade(idx){
           </div>
         </div>`;
       slot.querySelector('#btnAttach').addEventListener('click', ()=> toast('Демо: тут откроется выбор файла'));
-      slot.querySelector('#btnSendDispute').addEventListener('click', ()=>{
+      slot.querySelector('#btnSendDispute').addEventListener('click', async ()=>{
+        const comment = slot.querySelector('#disputeComment')?.value.trim() || null;
+        if (isTelegram && dealId) {
+          const res = await callApi('trades-confirm', { dealId, confirmed:false, comment });
+          if (!res) return;
+        }
         tg?.HapticFeedback?.notificationOccurred('warning');
         slot.innerHTML = `
           <div class="confirm-box">
@@ -776,12 +907,183 @@ function closeTrade(){
   setBackButton(null);
 }
 document.getElementById('tradeCreateBtn').addEventListener('click', ()=>{
-  toast('Демо: тут откроется форма «отдаю / хочу»');
   tg?.HapticFeedback?.impactOccurred('light');
+  tradeDetail.innerHTML = `
+    <div class="detail-back" id="tradeCreateBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>отмена</div>
+    <div class="panel-label">новое объявление</div>
+    <div class="confirm-box">
+      <p>Опиши, что отдаёшь и что хочешь получить взамен — коротко, как в биржевом объявлении.</p>
+      <input id="ncGive" placeholder="Отдаю (например: Артефакт «Слеза»)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin-bottom:8px;">
+      <input id="ncWant" placeholder="Хочу (например: АКМ-74 + 20 000 ₽)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin-bottom:12px;">
+      <div class="btn buy" id="ncSubmit">Опубликовать</div>
+    </div>`;
+  tradeDetail.querySelector('#tradeCreateBack').addEventListener('click', closeTradeCreate);
+  tradeDetail.querySelector('#ncSubmit').addEventListener('click', async ()=>{
+    const giveItem = tradeDetail.querySelector('#ncGive').value.trim();
+    const wantItem = tradeDetail.querySelector('#ncWant').value.trim();
+    if (!giveItem || !wantItem) { toast('Заполни оба поля'); return; }
+
+    if (isTelegram) {
+      const res = await callApi('trades', { action:'create', giveItem, wantItem });
+      if (!res) return;
+      toast('Объявление опубликовано');
+      tg?.HapticFeedback?.notificationOccurred('success');
+      await loadTrades();
+    } else {
+      // офлайн-демо (тестируешь не в Telegram) — просто добавляем локально, без записи в базу
+      trades.unshift({ give: giveItem, want: wantItem, user: 'Ты (демо)', days: 0, done: 0, disputed: 0 });
+      renderTradeFeed();
+      toast('Демо-режим: объявление добавлено локально, не в базу');
+    }
+    closeTradeCreate();
+  });
+  tradeList.style.display = 'none';
+  tradeDetail.classList.add('active');
+  setBackButton(closeTradeCreate);
 });
+function closeTradeCreate(){
+  tradeDetail.classList.remove('active'); tradeList.style.display='block';
+  setBackButton(null);
+}
+
+async function loadTrades() {
+  if (!isTelegram) { renderTradeFeed(); return; } // остаёмся на демо-данных trades[]
+  const res = await callApi('trades', { action:'list' });
+  if (!res) { renderTradeFeed(); return; }
+  trades = res.trades.map(t => ({
+    id: t.id,
+    give: t.give_item, want: t.want_item,
+    user: t.creator?.display_name || 'Игрок',
+    days: null, done: 0, disputed: 0, // репутация по этому юзеру отдельным запросом — см. заметку ниже
+  }));
+  renderTradeFeed();
+}
+
 
 /* ---------------- MAP ---------------- */
 document.getElementById('mapOpenBtn').addEventListener('click', ()=> toast('В проде — ссылка на внешнюю карту'));
+
+/* ---------------- SQUAD / TEAMMATES ---------------- */
+const squadFeed = document.getElementById('squadFeed');
+const squadList = document.getElementById('squadList');
+const squadDetail = document.getElementById('squadDetail');
+let squadListings = [
+  {id:null, loadout:'АКМ-74, костюм СЭВ-15, 3 аптечки, 200 патронов', goal:'Иду на Кордон фармить артефакты', nickname:'Prizrak_88', faction:'Долг', region:'EU'},
+  {id:null, loadout:'Дробовик, лёгкая броня, аптечки x5', goal:'Зачистка подземелья на Ржавом лесу', nickname:'Xoma_1997', faction:'Свобода', region:'EU'},
+];
+
+function renderSquadFeed(){
+  squadFeed.innerHTML = '';
+  squadListings.forEach((s, idx)=>{
+    const card = document.createElement('div');
+    card.className = 'trade-card';
+    card.innerHTML = `
+      <div class="trade-item-label">снаряжение</div>
+      <div class="trow-title" style="margin-bottom:8px;">${s.loadout}</div>
+      ${s.goal ? `<div class="trow-sub" style="margin-bottom:10px;">${s.goal}</div>` : ''}
+      <div class="trade-user">
+        <div class="trade-user-ic">${(s.nickname||'??').slice(0,2).toUpperCase()}</div>
+        <div class="trade-user-name">${s.nickname || 'Игрок'} · ${s.faction || '—'} · ${s.region || ''}</div>
+      </div>`;
+    card.addEventListener('click', ()=> openSquad(idx));
+    squadFeed.appendChild(card);
+  });
+}
+
+async function loadSquad(){
+  if (!isTelegram) { renderSquadFeed(); return; }
+  const res = await callApi('squad', { action:'list' });
+  if (!res) { renderSquadFeed(); return; }
+  squadListings = res.listings.map(s => ({
+    id: s.id, loadout: s.loadout, goal: s.goal,
+    nickname: s.character?.nickname, faction: s.character?.faction, region: s.character?.region,
+  }));
+  renderSquadFeed();
+}
+
+function openSquad(idx){
+  const s = squadListings[idx];
+  squadDetail.innerHTML = `
+    <div class="detail-back" id="squadBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к тиммейтам</div>
+    <div class="profile-card">
+      <div class="profile-top">
+        <div class="trade-user-ic" style="width:38px;height:38px;font-size:13px;">${(s.nickname||'??').slice(0,2).toUpperCase()}</div>
+        <div><div class="profile-name">${s.nickname || 'Игрок'}</div><div class="badge neutral">${s.faction || '—'} · ${s.region || ''}</div></div>
+      </div>
+    </div>
+    <div class="panel-label">снаряжение</div>
+    <div class="trade-card" style="cursor:default;"><div class="trow-title" style="margin-bottom:6px;">${s.loadout}</div>${s.goal ? `<div class="trow-sub">${s.goal}</div>` : ''}</div>
+    <div class="actions" style="margin-top:14px;"><div class="btn buy" id="squadInviteBtn">Пригласить в пачку</div></div>
+  `;
+  squadDetail.querySelector('#squadBack').addEventListener('click', closeSquad);
+  squadDetail.querySelector('#squadInviteBtn').addEventListener('click', async (e)=>{
+    if (isTelegram && s.id) {
+      const res = await callApi('squad-invite', { listingId: s.id });
+      if (!res) return;
+    }
+    toast('Приглашение отправлено · ' + (s.nickname || 'игроку'));
+    tg?.HapticFeedback?.notificationOccurred('success');
+    e.target.textContent = '✓ приглашение отправлено';
+  });
+  squadList.style.display = 'none';
+  squadDetail.classList.add('active');
+  setBackButton(closeSquad);
+}
+function closeSquad(){
+  squadDetail.classList.remove('active'); squadList.style.display='block';
+  setBackButton(null);
+}
+
+document.getElementById('squadCreateBtn').addEventListener('click', async ()=>{
+  tg?.HapticFeedback?.impactOccurred('light');
+  if (isTelegram) await loadMyCharacters();
+
+  if (isTelegram && myCharacters.length === 0) {
+    // нет привязанного персонажа — сначала форма привязки, потом форма объявления
+    squadDetail.innerHTML = `<div class="detail-back" id="scBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>отмена</div>` + characterLinkFormHtml();
+    squadDetail.querySelector('#scBack').addEventListener('click', closeSquadCreate);
+    wireCharacterLinkForm(squadDetail, ()=> document.getElementById('squadCreateBtn').click());
+    squadList.style.display = 'none'; squadDetail.classList.add('active'); setBackButton(closeSquadCreate);
+    return;
+  }
+
+  squadDetail.innerHTML = `
+    <div class="detail-back" id="scBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>отмена</div>
+    <div class="panel-label">новое объявление</div>
+    <div class="confirm-box">
+      <p>Опиши снаряжение, с которым идёшь — тиммейты увидят это в ленте.</p>
+      <input id="scLoadout" placeholder="Снаряжение (например: АКМ-74, костюм СЭВ-15...)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin-bottom:8px;">
+      <input id="scGoal" placeholder="Цель (необязательно)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin-bottom:12px;">
+      <div class="btn buy" id="scSubmit">Опубликовать</div>
+    </div>`;
+  squadDetail.querySelector('#scBack').addEventListener('click', closeSquadCreate);
+  squadDetail.querySelector('#scSubmit').addEventListener('click', async ()=>{
+    const loadout = squadDetail.querySelector('#scLoadout').value.trim();
+    const goal = squadDetail.querySelector('#scGoal').value.trim();
+    if (!loadout) { toast('Заполни снаряжение'); return; }
+
+    if (isTelegram) {
+      const characterId = myCharacters.find(c=>c.is_primary)?.id || myCharacters[0]?.id;
+      const res = await callApi('squad', { action:'create', characterId, loadout, goal });
+      if (!res) return;
+      toast('Объявление опубликовано');
+      tg?.HapticFeedback?.notificationOccurred('success');
+      await loadSquad();
+    } else {
+      squadListings.unshift({ id:null, loadout, goal, nickname:'Ты (демо)', faction:'—', region:'EU' });
+      renderSquadFeed();
+      toast('Демо-режим: добавлено локально, не в базу');
+    }
+    closeSquadCreate();
+  });
+  squadList.style.display = 'none'; squadDetail.classList.add('active'); setBackButton(closeSquadCreate);
+});
+function closeSquadCreate(){
+  squadDetail.classList.remove('active'); squadList.style.display='block';
+  setBackButton(null);
+}
+loadSquad();
+
 </script>
 
 </body>
