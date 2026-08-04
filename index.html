@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>STALZON</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -340,6 +341,20 @@
 </div>
 
 <script>
+/* ================================================================
+   ВСТАВЬ СВОИ ДАННЫЕ СЮДА — ДВЕ СТРОКИ НИЖЕ, БОЛЬШЕ НИЧЕГО МЕНЯТЬ НЕ НАДО
+   Взять в Supabase → Settings → API:
+   - SUPABASE_URL     = "Project URL"
+   - SUPABASE_ANON_KEY = "anon / public" key (НЕ service_role!)
+   ================================================================ */
+const SUPABASE_URL = 'https://fnvwfmiukvrasqociagr.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZudndmbWl1a3ZyYXNxb2NpYWdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3OTgxNDUsImV4cCI6MjEwMTM3NDE0NX0.S-tGMqPcfFhCPtJsqbu_bREGXYlca3YhPUUChuMuOHM';
+/* ================================================================ */
+
+const supabase = (SUPABASE_URL.startsWith('http'))
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null; // пока ключи не вставлены — работаем на демо-данных ниже, ничего не падает
+
 /* ---------------- TELEGRAM WEBAPP INTEGRATION ---------------- */
 const tg = window.Telegram?.WebApp;
 if (tg) {
@@ -412,18 +427,21 @@ const auctionItems = [
 ];
 
 const trades = [
-  {give:'Артефакт «Слеза»', want:'АКМ-74 obr.2 + 20 000 ₽', user:'Prizrak_88', trust:'verified', days:214, done:47, disputed:0},
-  {give:'2х Аптечка армейская', want:'Патроны 7.62мм x300', user:'Novichok_zoni', trust:'neutral', days:3, done:1, disputed:0},
-  {give:'Костюм СЭВ-15', want:'Артефакт любой (кроме бижутерии)', user:'Xoma_1997', trust:'warn', days:58, done:6, disputed:2},
-  {give:'Обвес ПБС + прицел', want:'Тушёнка x50 или эквивалент', user:'ryba_net', trust:'scam', days:11, done:2, disputed:5},
+  {give:'Артефакт «Слеза»', want:'АКМ-74 obr.2 + 20 000 ₽', user:'Prizrak_88', days:214, done:47, disputed:1},
+  {give:'2х Аптечка армейская', want:'Патроны 7.62мм x300', user:'Novichok_zoni', days:3, done:1, disputed:0},
+  {give:'Костюм СЭВ-15', want:'Артефакт любой (кроме бижутерии)', user:'Xoma_1997', days:58, done:6, disputed:2},
+  {give:'Обвес ПБС + прицел', want:'Тушёнка x50 или эквивалент', user:'ryba_net', days:11, done:2, disputed:5},
 ];
+// Бейдж считаем по порогу, не по единичному случаю — так один недобросовестный
+// отчёт не топит репутацию человека с чистой историей. Никаких ярлыков вроде
+// "скамер" — только нейтральные цифры и мягкая формулировка, факт решает админ.
 function badgeInfo(t){
-  return {
-    verified:{cls:'verified', label:'✓ проверенный'},
-    neutral: {cls:'neutral',  label:'новый трейдер'},
-    warn:    {cls:'warn',     label:'⚠ есть споры'},
-    scam:    {cls:'scam',     label:'⚠ возможный скам'},
-  }[t];
+  const total = t.done + t.disputed;
+  if (total < 5) return {cls:'neutral', label:'новый трейдер'};
+  const ratio = t.disputed / total;
+  if (ratio === 0)        return {cls:'verified', label:'✓ проверенный'};
+  if (ratio <= 0.25)      return {cls:'neutral',  label:`${t.done} сделок · ${t.disputed} спорных`};
+  return {cls:'warn', label:'⚠ не все сделки подтверждены'};
 }
 
 /* ---------------- TAB SWITCHING ---------------- */
@@ -481,24 +499,46 @@ document.querySelectorAll('#regionRow .rchip').forEach(chip=>{
 
 /* ---------------- PROMO ---------------- */
 const promoTable = document.getElementById('promoTable');
-promos.forEach(p=>{
-  const row = document.createElement('div');
-  row.className = 'trow';
-  row.innerHTML = `
-    <div class="trow-ic">%</div>
-    <div class="trow-body"><div class="trow-title">${p.code}</div><div class="trow-sub ${p.kind}">${p.status}</div></div>
-    <button class="trow-val">копир.</button>`;
-  row.querySelector('.trow-val').addEventListener('click', (e)=>{
-    e.stopPropagation();
-    navigator.clipboard?.writeText(p.code).catch(()=>{});
-    const btn = e.currentTarget;
-    btn.textContent = '✓ скопир.';
-    btn.classList.add('copied');
-    toast('Промокод «'+p.code+'» скопирован');
-    setTimeout(()=>{ btn.textContent='копир.'; btn.classList.remove('copied'); }, 1600);
+function renderPromoTable(list){
+  promoTable.innerHTML = '';
+  list.forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'trow';
+    row.innerHTML = `
+      <div class="trow-ic">%</div>
+      <div class="trow-body"><div class="trow-title">${p.code}</div><div class="trow-sub ${p.kind}">${p.status}</div></div>
+      <button class="trow-val">копир.</button>`;
+    row.querySelector('.trow-val').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      navigator.clipboard?.writeText(p.code).catch(()=>{});
+      const btn = e.currentTarget;
+      btn.textContent = '✓ скопир.';
+      btn.classList.add('copied');
+      toast('Промокод «'+p.code+'» скопирован');
+      setTimeout(()=>{ btn.textContent='копир.'; btn.classList.remove('copied'); }, 1600);
+    });
+    promoTable.appendChild(row);
   });
-  promoTable.appendChild(row);
-});
+}
+
+async function loadPromos(){
+  if (!supabase) { renderPromoTable(promos); return; } // ключи не вставлены — показываем демо
+  const { data, error } = await supabase
+    .from('promo_codes')
+    .select('code, expires_at')
+    .order('created_at', { ascending:false });
+
+  if (error || !data) { console.error('Supabase promo_codes error:', error); renderPromoTable(promos); return; }
+
+  renderPromoTable(data.map(row => ({
+    code: row.code,
+    status: row.expires_at
+      ? 'истекает ' + new Date(row.expires_at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})
+      : 'бессрочный',
+    kind: row.expires_at ? 'sell' : 'buy',
+  })));
+}
+loadPromos();
 
 /* ---------------- GUIDES ---------------- */
 const guidesTable = document.getElementById('guidesTable');
@@ -608,7 +648,7 @@ const tradeDetail = document.getElementById('tradeDetail');
 function renderTradeFeed(){
   tradeFeed.innerHTML = '';
   trades.forEach((t, idx)=>{
-    const b = badgeInfo(t.trust);
+    const b = badgeInfo(t);
     const card = document.createElement('div');
     card.className = 'trade-card';
     card.innerHTML = `
@@ -630,7 +670,7 @@ renderTradeFeed();
 
 function openTrade(idx){
   const t = trades[idx];
-  const b = badgeInfo(t.trust);
+  const b = badgeInfo(t);
   tradeDetail.innerHTML = `
     <div class="detail-back" id="tradeBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к обменам</div>
 
@@ -684,9 +724,33 @@ function openTrade(idx){
       slot.innerHTML = '<div class="confirm-box"><p style="margin:0;">Готово. Ждём подтверждения от второй стороны, чтобы закрыть сделку.</p></div>';
     });
     slot.querySelector('#btnFail').addEventListener('click', ()=>{
-      toast('Отмечено: сделка не состоялась — уйдёт в спорные');
-      tg?.HapticFeedback?.notificationOccurred('warning');
-      slot.innerHTML = '<div class="confirm-box"><p style="margin:0;">Зафиксировано как несостоявшаяся. Если вторая сторона подтвердит обратное — сделка попадёт в спорные, не автоматически в бан.</p></div>';
+      slot.innerHTML = `
+        <div class="confirm-box" style="border-color:var(--sell);">
+          <p><b style="color:var(--sell)">Опишите, что пошло не так.</b> Это уйдёт вместе с заявкой — по спорным сделкам решение принимает вручную администратор, а не алгоритм.</p>
+          <textarea id="disputeComment" placeholder="Например: договорились обменяться, но вторая сторона не вышла на точку..." style="width:100%; min-height:64px; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12px; padding:9px; margin-bottom:10px; resize:vertical;"></textarea>
+          <div class="actions" style="margin-bottom:10px;">
+            <div class="btn" id="btnAttach" style="color:var(--bone-dim);">📎 приложить скриншот</div>
+          </div>
+          <div class="actions confirm-actions">
+            <div class="btn sell" id="btnSendDispute">Отправить администратору</div>
+          </div>
+        </div>`;
+      slot.querySelector('#btnAttach').addEventListener('click', ()=> toast('Демо: тут откроется выбор файла'));
+      slot.querySelector('#btnSendDispute').addEventListener('click', ()=>{
+        tg?.HapticFeedback?.notificationOccurred('warning');
+        slot.innerHTML = `
+          <div class="confirm-box">
+            <p style="margin-bottom:12px;">Спор зафиксирован и отправлен администратору. До решения сделка помечена как <b style="color:var(--amber)">на рассмотрении</b> — это не портит репутацию сторон автоматически.</p>
+            <div class="actions">
+              <div class="btn" id="btnContactAdmin" style="border-color:var(--amber); color:var(--amber);">Написать администратору в ТГ</div>
+            </div>
+          </div>`;
+        slot.querySelector('#btnContactAdmin').addEventListener('click', ()=>{
+          const url = 'https://t.me/hestonchef';
+          if (tg?.openTelegramLink) tg.openTelegramLink(url); else window.open(url, '_blank');
+        });
+        toast('Спор отправлен администратору');
+      });
     });
   });
   tradeList.style.display = 'none';
