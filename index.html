@@ -351,9 +351,18 @@ const SUPABASE_URL = 'https://fnvwfmiukvrasqociagr.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZudndmbWl1a3ZyYXNxb2NpYWdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3OTgxNDUsImV4cCI6MjEwMTM3NDE0NX0.S-tGMqPcfFhCPtJsqbu_bREGXYlca3YhPUUChuMuOHM';
 /* ================================================================ */
 
-const supabase = (SUPABASE_URL.startsWith('http'))
-  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  : null; // пока ключи не вставлены — работаем на демо-данных ниже, ничего не падает
+// ВАЖНО: любая ошибка здесь (опечатка в ключе, не загрузился CDN, блокировщик
+// рекламы порезал jsdelivr) НЕ должна ронять весь остальной интерфейс —
+// поэтому вся инициализация обёрнута в try/catch.
+let supabase = null;
+try {
+  if (SUPABASE_URL.startsWith('http') && window.supabase) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch (err) {
+  console.error('Supabase init failed, работаем на демо-данных:', err);
+  supabase = null;
+}
 
 /* ---------------- TELEGRAM WEBAPP INTEGRATION ---------------- */
 const tg = window.Telegram?.WebApp;
@@ -522,21 +531,26 @@ function renderPromoTable(list){
 }
 
 async function loadPromos(){
-  if (!supabase) { renderPromoTable(promos); return; } // ключи не вставлены — показываем демо
-  const { data, error } = await supabase
-    .from('promo_codes')
-    .select('code, expires_at')
-    .order('created_at', { ascending:false });
+  if (!supabase) { renderPromoTable(promos); return; }
+  try {
+    const { data, error } = await supabase
+      .from('promo_codes')
+      .select('code, expires_at')
+      .order('created_at', { ascending:false });
 
-  if (error || !data) { console.error('Supabase promo_codes error:', error); renderPromoTable(promos); return; }
+    if (error || !data) throw error || new Error('no data');
 
-  renderPromoTable(data.map(row => ({
-    code: row.code,
-    status: row.expires_at
-      ? 'истекает ' + new Date(row.expires_at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})
-      : 'бессрочный',
-    kind: row.expires_at ? 'sell' : 'buy',
-  })));
+    renderPromoTable(data.map(row => ({
+      code: row.code,
+      status: row.expires_at
+        ? 'истекает ' + new Date(row.expires_at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})
+        : 'бессрочный',
+      kind: row.expires_at ? 'sell' : 'buy',
+    })));
+  } catch (err) {
+    console.error('Supabase promo_codes error, показываем демо:', err);
+    renderPromoTable(promos);
+  }
 }
 loadPromos();
 
