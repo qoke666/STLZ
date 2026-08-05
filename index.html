@@ -70,11 +70,13 @@
   .hicon svg{ width:14px; height:14px; stroke:var(--bone-dim); fill:none; stroke-width:1.5; }
   .hicon .dot{ position:absolute; top:-3px; right:-3px; width:6px; height:6px; border-radius:50%; background:var(--sell); border:1.5px solid var(--bg-panel); }
 
-  /* ---------- TAB STRIP ---------- */
-  .tabstrip{ display:flex; border-bottom:1px solid var(--line); background:var(--bg-void); overflow-x:auto; flex-shrink:0; }
-  .tabstrip::-webkit-scrollbar{ display:none; }
-  .tstab{ padding:12px 13px 11px; font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--bone-faint); white-space:nowrap; border-bottom:2px solid transparent; cursor:pointer; user-select:none; background:none; border-left:none; border-right:none; border-top:none; }
-  .tstab.active{ color:var(--bone); border-bottom-color:var(--amber); }
+  .char-switcher{ display:none; background:var(--bg-panel-2); border-bottom:1px solid var(--line); padding:8px; flex-shrink:0; }
+  .char-switcher.open{ display:block; }
+  .char-row{ display:flex; align-items:center; gap:9px; padding:9px 8px; cursor:pointer; border-radius:2px; }
+  .char-row:hover, .char-row.active{ background:var(--bg-panel); }
+  .char-row-name{ font-size:12.5px; font-weight:500; flex:1; }
+  .char-row-meta{ font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--bone-faint); }
+  .char-add-row{ display:flex; align-items:center; gap:8px; padding:9px 8px; color:var(--amber); font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.03em; cursor:pointer; }
 
   /* ---------- CONTENT / SCREENS ---------- */
   .content{ flex:1; overflow-y:auto; position:relative; }
@@ -216,6 +218,7 @@
   .map-placeholder{ border:1px solid var(--line); background:var(--bg-panel); padding:40px 20px; text-align:center; }
   .map-placeholder svg{ width:28px; height:28px; stroke:var(--bone-faint); fill:none; stroke-width:1.3; margin-bottom:12px; }
   .map-placeholder p{ font-size:12.5px; color:var(--bone-dim); line-height:1.6; margin-bottom:16px; }
+  .soon-label{ font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.12em; color:var(--amber); margin-bottom:10px; }
 
   /* ---------- BOTTOM NAV ---------- */
   .tabbar{ position:absolute; left:0; right:0; bottom:0; display:flex; background:rgba(10,11,12,0.94); backdrop-filter:blur(10px); border-top:1px solid var(--line); padding:9px 4px calc(9px + env(safe-area-inset-bottom)); z-index:4; }
@@ -239,9 +242,9 @@
 
   <div class="header">
     <div class="id-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg></div>
-    <div class="id-text">
-      <div class="id-name">Dan_Zaraza</div>
-      <div class="id-sub">EU · привязан</div>
+    <div class="id-text" id="headerIdText" style="cursor:pointer;">
+      <div class="id-name" id="headerNick">—</div>
+      <div class="id-sub" id="headerSub">загрузка…</div>
     </div>
     <div class="header-icons">
       <div class="hicon"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></div>
@@ -249,15 +252,7 @@
     </div>
   </div>
 
-  <div class="tabstrip" id="tabstrip">
-    <div class="tstab active" data-target="emission">выброс</div>
-    <div class="tstab" data-target="auction">аукцион</div>
-    <div class="tstab" data-target="trade">обмен</div>
-    <div class="tstab" data-target="squad">тиммейты</div>
-    <div class="tstab" data-target="promo">промокоды</div>
-    <div class="tstab" data-target="guides">гайды</div>
-    <div class="tstab" data-target="map">карта</div>
-  </div>
+  <div class="char-switcher" id="charSwitcher"></div>
 
   <div class="content" id="content">
 
@@ -334,8 +329,8 @@
       <div class="panel-label">карта зоны</div>
       <div class="map-placeholder">
         <svg viewBox="0 0 24 24"><path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
-        <p>Своя карта пока не решена — открываем внешнюю интерактивную карту в браузере, чтобы не дублировать чужую работу.</p>
-        <div class="btn" style="border-color:var(--amber); color:var(--amber);" id="mapOpenBtn">Открыть карту ↗</div>
+        <div class="soon-label">COMING SOON</div>
+        <p>Своя интерактивная карта в разработке — появится в одном из следующих обновлений.</p>
       </div>
     </div>
 
@@ -442,6 +437,68 @@ async function loadMyCharacters() {
   if (res) myCharacters = res.characters || [];
 }
 
+/* ---------------- HEADER / CHARACTER SWITCHER ---------------- */
+let activeCharIndex = 0;
+const headerNick = document.getElementById('headerNick');
+const headerSub = document.getElementById('headerSub');
+const charSwitcher = document.getElementById('charSwitcher');
+
+function renderHeader(){
+  const c = myCharacters[activeCharIndex];
+  if (c) {
+    headerNick.textContent = c.nickname;
+    headerSub.textContent = `${c.region} · ${c.faction}`;
+  } else if (!isTelegram) {
+    headerNick.textContent = 'Dan_Zaraza (демо)';
+    headerSub.textContent = 'EU · демо-режим';
+  } else {
+    headerNick.textContent = 'Персонаж не привязан';
+    headerSub.textContent = 'нажми, чтобы привязать';
+  }
+}
+
+function renderCharSwitcher(){
+  const rows = myCharacters.map((c, i) => `
+    <div class="char-row ${i===activeCharIndex?'active':''}" data-idx="${i}">
+      <div class="char-row-name">${c.nickname}</div>
+      <div class="char-row-meta">${c.region} · ${c.faction}${c.is_primary ? ' · основной' : ''}</div>
+    </div>`).join('');
+  charSwitcher.innerHTML = rows + `<div class="char-add-row" id="charAddRow">+ привязать ещё персонажа</div>`;
+  charSwitcher.querySelectorAll('.char-row').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      activeCharIndex = Number(row.dataset.idx);
+      renderHeader();
+      charSwitcher.classList.remove('open');
+      tg?.HapticFeedback?.impactOccurred('light');
+    });
+  });
+  charSwitcher.querySelector('#charAddRow').addEventListener('click', ()=>{
+    charSwitcher.innerHTML = characterLinkFormHtml();
+    wireCharacterLinkForm(charSwitcher, async ()=>{
+      activeCharIndex = myCharacters.length - 1; // только что добавленный — активный
+      renderHeader();
+      charSwitcher.classList.remove('open');
+    });
+  });
+}
+
+document.getElementById('headerIdText').addEventListener('click', async ()=>{
+  if (!isTelegram) { toast('Привязка персонажей работает только внутри Telegram'); return; }
+  if (charSwitcher.classList.contains('open')) { charSwitcher.classList.remove('open'); return; }
+  if (myCharacters.length === 0) {
+    charSwitcher.innerHTML = characterLinkFormHtml();
+    wireCharacterLinkForm(charSwitcher, ()=>{ activeCharIndex = 0; renderHeader(); charSwitcher.classList.remove('open'); });
+  } else {
+    renderCharSwitcher();
+  }
+  charSwitcher.classList.add('open');
+});
+
+(async ()=>{
+  await loadMyCharacters();
+  renderHeader();
+})();
+
 
 const promos = [
   {code:'EXBO-SUMMER26', status:'истекает через 4 ч', kind:'sell'},
@@ -501,11 +558,10 @@ function badgeInfo(t){
 /* ---------------- TAB SWITCHING ---------------- */
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active', s.dataset.screen===name));
-  document.querySelectorAll('.tstab').forEach(t=>t.classList.toggle('active', t.dataset.target===name));
   document.querySelectorAll('#tabbar .tab').forEach(t=>t.classList.toggle('active', t.dataset.target===name));
   document.getElementById('content').scrollTop = 0;
 }
-document.querySelectorAll('.tstab, #tabbar .tab').forEach(el=>{
+document.querySelectorAll('#tabbar .tab').forEach(el=>{
   el.addEventListener('click', ()=>{
     showScreen(el.dataset.target);
     tg?.HapticFeedback?.impactOccurred('light');
@@ -961,8 +1017,6 @@ async function loadTrades() {
 
 
 /* ---------------- MAP ---------------- */
-document.getElementById('mapOpenBtn').addEventListener('click', ()=> toast('В проде — ссылка на внешнюю карту'));
-
 /* ---------------- SQUAD / TEAMMATES ---------------- */
 const squadFeed = document.getElementById('squadFeed');
 const squadList = document.getElementById('squadList');
