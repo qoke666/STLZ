@@ -40,18 +40,25 @@ export function verifyTelegramInitData(initData) {
 }
 
 // Находит internal users.id по telegram id, либо создаёт профиль при первом заходе.
+// ВАЖНО: это должно быть атомарно — если с фронта параллельно прилетело несколько
+// запросов от одного и того же нового юзера (обычная ситуация при старте аппа,
+// когда characters/trades/squad грузятся одновременно), find-затем-insert может
+// создать ДВА разных users на одного человека. Поэтому застолбление identity идёт
+// через upsert с опорой на unique(platform, platform_user_id) в БД, а не на
+// предварительную проверку в JS — гонку разруливает сама база, а не наш код.
 export async function getOrCreateUser(supabaseAdmin, tgUser) {
   const platformUserId = String(tgUser.id);
 
+  // 1. быстрый путь — юзер уже точно существует
   const { data: existing } = await supabaseAdmin
     .from('platform_identities')
     .select('user_id')
     .eq('platform', 'telegram')
     .eq('platform_user_id', platformUserId)
     .maybeSingle();
-
   if (existing) return existing.user_id;
 
+  // 2. создаём кандидата в users — если проиграем гонку, удалим его же ниже
   const { data: newUser, error: userErr } = await supabaseAdmin
     .from('users')
     .insert({ display_name: tgUser.username || tgUser.first_name || 'Игрок' })
@@ -59,16 +66,37 @@ export async function getOrCreateUser(supabaseAdmin, tgUser) {
     .single();
   if (userErr) throw userErr;
 
-  await supabaseAdmin.from('platform_identities').insert({
-    user_id: newUser.id,
-    platform: 'telegram',
-    platform_user_id: platformUserId,
-    platform_username: tgUser.username || null,
-    verification_method: 'telegram_initdata', // сама подпись initData И ЕСТЬ доказательство владения
-    verified_at: new Date().toISOString(),
-  });
+  // 3. пытаемся застолбить identity — ignoreDuplicates значит "если кто-то параллельно
+  //    уже занял этот platform_user_id, просто молча пропустить, не ошибаться"
+  const { error: identErr } = await supabaseAdmin
+    .from('platform_identities')
+    .upsert(
+      {
+        user_id: newUser.id,
+        platform: 'telegram',
+        platform_user_id: platformUserId,
+        platform_username: tgUser.username || null,
+        verification_method: 'telegram_initdata',
+        verified_at: new Date().toISOString(),
+      },
+      { onConflict: 'platform,platform_user_id', ignoreDuplicates: true }
+    );
+  if (identErr) throw identErr;
 
-  return newUser.id;
+  // 4. источник правды — кто реально победил гонку (мы или параллельный запрос)
+  const { data: final } = await supabaseAdmin
+    .from('platform_identities')
+    .select('user_id')
+    .eq('platform', 'telegram')
+    .eq('platform_user_id', platformUserId)
+    .single();
+
+  // проиграли — подчищаем свою пустышку в users, чтобы не плодить сирот
+  if (final.user_id !== newUser.id) {
+    await supabaseAdmin.from('users').delete().eq('id', newUser.id);
+  }
+
+  return final.user_id;
 }
 
 // Общий разбор входа: проверить initData → вернуть {supabaseAdmin, userId} или бросить 401.
