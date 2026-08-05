@@ -175,6 +175,13 @@
   .gstep:last-child{ border-bottom:none; }
   .gstep-n{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--amber); flex-shrink:0; width:18px; }
   .gstep-t{ font-size:12.5px; line-height:1.4; color:var(--bone-dim); }
+  .gstep-img{ width:100%; border:1px solid var(--line); margin-top:8px; display:block; }
+
+  .gform-step{ border:1px solid var(--line); background:var(--bg-panel); padding:11px; margin-bottom:8px; }
+  .gform-step textarea{ width:100%; min-height:50px; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12px; padding:8px; margin-bottom:8px; resize:vertical; }
+  .gform-step input[type=file]{ width:100%; font-family:'JetBrains Mono', monospace; font-size:10.5px; color:var(--bone-dim); }
+  .gform-step img{ max-width:100%; margin-top:8px; border:1px solid var(--line); }
+  .gform-add-step{ text-align:center; padding:9px; border:1px dashed var(--line); color:var(--bone-faint); font-family:'JetBrains Mono', monospace; font-size:11px; cursor:pointer; margin-bottom:14px; }
 
   /* ---------- TRADE / EXCHANGE ---------- */
   .trade-card{ border:1px solid var(--line); background:var(--bg-panel); padding:13px 14px; margin-bottom:9px; cursor:pointer; }
@@ -682,10 +689,16 @@ async function loadGuides(){
 }
 function openGuide(i){
   const g = guides[i];
+  // steps могут быть либо строкой (старые демо-данные), либо {text, imageUrl} — поддерживаем оба
+  const stepsHtml = g.steps.map((s, idx) => {
+    const text = typeof s === 'string' ? s : s.text;
+    const img = typeof s === 'object' && s.imageUrl ? `<img class="gstep-img" src="${s.imageUrl}" alt="">` : '';
+    return `<div class="gstep"><div class="gstep-n">${String(idx+1).padStart(2,'0')}</div><div style="flex:1;"><div class="gstep-t">${text}</div>${img}</div></div>`;
+  }).join('');
   guideDetail.innerHTML = `
     <div class="detail-back" id="guideBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к гайдам</div>
     <div class="item-head"><div class="item-thumb">▤</div><div><div class="item-name">${g.title}</div><div class="item-meta">${g.meta||''}</div></div></div>
-    <div class="guide-steps">${g.steps.map((s,idx)=>`<div class="gstep"><div class="gstep-n">${String(idx+1).padStart(2,'0')}</div><div class="gstep-t">${s}</div></div>`).join('')}</div>`;
+    <div class="guide-steps">${stepsHtml}</div>`;
   function closeGuide(){
     guideDetail.classList.remove('active'); guidesList.style.display='block';
     setBackButton(null);
@@ -707,15 +720,85 @@ document.getElementById('promoAddBtn').addEventListener('click', async ()=>{
   const res = await callApi('admin-add-promo', { code, expiresAt });
   if (res) { toast('Промокод добавлен'); loadPromos(); }
 });
-document.getElementById('guideAddBtn').addEventListener('click', async ()=>{
-  const title = prompt('Название гайда:'); if (!title) return;
-  const meta = prompt('Подпись (например "7 шагов · сюжет"):') || '';
-  const stepsRaw = prompt('Шаги, по одному на строке (раздели символом |):');
-  const steps = (stepsRaw||'').split('|').map(s=>s.trim()).filter(Boolean);
-  if (!steps.length) { toast('Нужен хотя бы один шаг'); return; }
-  const res = await callApi('admin-add-guide', { title, meta, steps });
-  if (res) { toast('Гайд добавлен'); loadGuides(); }
+
+// Читает файл из <input type=file> и возвращает {base64, mime} без префикса data:...;base64,
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ base64: reader.result.split(',')[1], mime: file.type });
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('guideAddBtn').addEventListener('click', ()=>{
+  let stepCount = 0;
+  function stepRowHtml(n) {
+    return `
+      <div class="gform-step" data-step="${n}">
+        <div class="trade-item-label" style="margin-bottom:6px;">шаг ${n + 1}</div>
+        <textarea placeholder="Что делать на этом шаге" class="gStepText"></textarea>
+        <input type="file" accept="image/*" class="gStepFile">
+        <div class="gStepPreview"></div>
+      </div>`;
+  }
+  guideDetail.innerHTML = `
+    <div class="detail-back" id="gaBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>отмена</div>
+    <div class="panel-label">новый гайд</div>
+    <input id="gaTitle" placeholder="Название гайда" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:13px; padding:10px; margin-bottom:8px;">
+    <input id="gaMeta" placeholder="Подпись (например «7 шагов · сюжет»)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12px; padding:10px; margin-bottom:14px;">
+    <div id="gaSteps"></div>
+    <div class="gform-add-step" id="gaAddStep">+ добавить шаг</div>
+    <div class="btn buy" id="gaSubmit">Опубликовать гайд</div>
+  `;
+  const stepsBox = guideDetail.querySelector('#gaSteps');
+  function addStepRow() {
+    const div = document.createElement('div');
+    div.innerHTML = stepRowHtml(stepCount++);
+    const row = div.firstElementChild;
+    stepsBox.appendChild(row);
+    row.querySelector('.gStepFile').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const preview = row.querySelector('.gStepPreview');
+      preview.innerHTML = `<img src="${URL.createObjectURL(file)}">`;
+    });
+  }
+  addStepRow(); // хотя бы один шаг сразу
+  guideDetail.querySelector('#gaAddStep').addEventListener('click', addStepRow);
+  guideDetail.querySelector('#gaBack').addEventListener('click', closeGuideCreate);
+
+  guideDetail.querySelector('#gaSubmit').addEventListener('click', async ()=>{
+    const title = guideDetail.querySelector('#gaTitle').value.trim();
+    const meta = guideDetail.querySelector('#gaMeta').value.trim();
+    const rows = [...stepsBox.querySelectorAll('.gform-step')];
+    if (!title || rows.length === 0) { toast('Заполни название и хотя бы один шаг'); return; }
+
+    const steps = [];
+    for (const row of rows) {
+      const text = row.querySelector('.gStepText').value.trim();
+      if (!text) { toast('Заполни текст каждого шага'); return; }
+      const file = row.querySelector('.gStepFile').files[0];
+      const step = { text };
+      if (file) {
+        const { base64, mime } = await fileToBase64(file);
+        step.imageBase64 = base64; step.imageMime = mime;
+      }
+      steps.push(step);
+    }
+
+    const res = await callApi('admin-add-guide', { title, meta, steps });
+    if (res) { toast('Гайд добавлен'); await loadGuides(); closeGuideCreate(); }
+  });
+
+  guidesList.style.display = 'none';
+  guideDetail.classList.add('active');
+  setBackButton(closeGuideCreate);
 });
+function closeGuideCreate(){
+  guideDetail.classList.remove('active'); guidesList.style.display='block';
+  setBackButton(null);
+}
 
 /* ---------------- AUCTION ---------------- */
 const auctionTable = document.getElementById('auctionTable');
