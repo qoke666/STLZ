@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "api/admin-seed-items.js": {
-      "maxDuration": 60
-    }
-  }
-}
