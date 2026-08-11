@@ -183,6 +183,24 @@
   .gform-step img{ max-width:100%; margin-top:8px; border:1px solid var(--line); }
   .gform-add-step{ text-align:center; padding:9px; border:1px dashed var(--line); color:var(--bone-faint); font-family:'JetBrains Mono', monospace; font-size:11px; cursor:pointer; margin-bottom:14px; }
 
+  .item-search-box{ position:relative; margin-bottom:8px; }
+  .item-search-results{ position:absolute; left:0; right:0; top:100%; background:var(--bg-panel-2); border:1px solid var(--line); border-top:none; max-height:220px; overflow-y:auto; z-index:10; display:none; }
+  .item-search-results.open{ display:block; }
+  .item-search-row{ display:flex; align-items:center; gap:8px; padding:9px 10px; cursor:pointer; border-bottom:1px solid var(--line-soft); }
+  .item-search-row:last-child{ border-bottom:none; }
+  .item-search-row:hover{ background:var(--bg-panel); }
+  .item-search-row .rarity-dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .item-search-row .name{ font-size:12px; flex:1; }
+
+  .picked-item-row{ display:flex; align-items:center; gap:8px; border:1px solid var(--line); background:var(--bg-panel); padding:9px 10px; margin-bottom:8px; }
+  .picked-item-row .rarity-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .picked-item-row .name{ font-size:12.5px; flex:1; }
+  .picked-item-row select{ background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'JetBrains Mono', monospace; font-size:11px; padding:5px 6px; }
+
+  .item-chip{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--bg-panel-2); padding:5px 9px; margin:0 6px 6px 0; font-size:11.5px; }
+  .item-chip .rarity-dot{ width:6px; height:6px; border-radius:50%; }
+  .item-chip .x{ color:var(--bone-faint); cursor:pointer; font-family:monospace; margin-left:2px; }
+
   /* ---------- TRADE / EXCHANGE ---------- */
   .trade-card{ border:1px solid var(--line); background:var(--bg-panel); padding:13px 14px; margin-bottom:9px; cursor:pointer; }
   .trade-card:active{ background:var(--bg-panel-2); }
@@ -1101,6 +1119,14 @@ async function loadTrades() {
 
 /* ---------------- MAP ---------------- */
 /* ---------------- SQUAD / TEAMMATES ---------------- */
+function rarityColor(rarity){
+  return {
+    DEFAULT: '#86888b', RANK_NEWBIE: '#7bb662', RANK_STALKER: '#5b9bd5',
+    RANK_VETERAN: '#9b6fd1', RANK_MASTER: '#d0a244', RANK_LEGEND: '#cf5c4c',
+    QUEST_ITEM: '#d0a244',
+  }[rarity] || '#86888b';
+}
+
 const squadFeed = document.getElementById('squadFeed');
 const squadList = document.getElementById('squadList');
 const squadDetail = document.getElementById('squadDetail');
@@ -1188,16 +1214,78 @@ document.getElementById('squadCreateBtn').addEventListener('click', async ()=>{
     <div class="detail-back" id="scBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>отмена</div>
     <div class="panel-label">новое объявление</div>
     <div class="confirm-box">
-      <p>Опиши снаряжение, с которым идёшь — тиммейты увидят это в ленте.</p>
-      <input id="scLoadout" placeholder="Снаряжение (например: АКМ-74, костюм СЭВ-15...)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin-bottom:8px;">
-      <input id="scGoal" placeholder="Цель (необязательно)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin-bottom:12px;">
+      <p>Добавь предметы своего снаряжения — тиммейты увидят это в ленте.</p>
+      <div id="scPickedList"></div>
+      <div class="item-search-box">
+        <input id="scItemSearch" placeholder="Начни вводить название предмета..." autocomplete="off" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px;">
+        <div class="item-search-results" id="scItemResults"></div>
+      </div>
+      <input id="scGoal" placeholder="Цель (необязательно)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin:12px 0;">
       <div class="btn buy" id="scSubmit">Опубликовать</div>
     </div>`;
   squadDetail.querySelector('#scBack').addEventListener('click', closeSquadCreate);
+
+  // --- поиск по каталогу предметов (items_catalog), напрямую через anon key ---
+  const pickedItems = []; // {id, name, rarity, enchant}
+  const searchInput = squadDetail.querySelector('#scItemSearch');
+  const resultsBox = squadDetail.querySelector('#scItemResults');
+  const pickedListBox = squadDetail.querySelector('#scPickedList');
+  let searchTimer = null;
+
+  function renderPickedList(){
+    pickedListBox.innerHTML = pickedItems.map((it, idx) => `
+      <div class="picked-item-row">
+        <div class="rarity-dot" style="background:${rarityColor(it.rarity)}"></div>
+        <div class="name">${it.name}</div>
+        <select class="pickedEnchant" data-idx="${idx}">
+          ${Array.from({length:16}, (_,n)=>`<option value="${n}" ${n===it.enchant?'selected':''}>${n===0?'без заточки':'+'+n}</option>`).join('')}
+        </select>
+        <span class="x" data-remove="${idx}">✕</span>
+      </div>`).join('');
+    pickedListBox.querySelectorAll('.pickedEnchant').forEach(sel=>{
+      sel.addEventListener('change', (e)=>{ pickedItems[Number(e.target.dataset.idx)].enchant = Number(e.target.value); });
+    });
+    pickedListBox.querySelectorAll('[data-remove]').forEach(x=>{
+      x.addEventListener('click', ()=>{ pickedItems.splice(Number(x.dataset.remove), 1); renderPickedList(); });
+    });
+  }
+
+  searchInput.addEventListener('input', ()=>{
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (q.length < 2) { resultsBox.classList.remove('open'); return; }
+    searchTimer = setTimeout(async ()=>{
+      if (!db) { resultsBox.classList.remove('open'); return; } // без ключей Supabase поиск недоступен
+      const { data, error } = await db
+        .from('items_catalog')
+        .select('id, name, rarity')
+        .ilike('name', q + '%')
+        .order('name')
+        .limit(8);
+      if (error || !data) { resultsBox.classList.remove('open'); return; }
+      resultsBox.innerHTML = data.map(it => `
+        <div class="item-search-row" data-id="${it.id}" data-name="${it.name}" data-rarity="${it.rarity}">
+          <div class="rarity-dot" style="background:${rarityColor(it.rarity)}"></div>
+          <div class="name">${it.name}</div>
+        </div>`).join('') || `<div class="item-search-row" style="color:var(--bone-faint);">ничего не найдено</div>`;
+      resultsBox.querySelectorAll('.item-search-row[data-id]').forEach(row=>{
+        row.addEventListener('click', ()=>{
+          pickedItems.push({ id:row.dataset.id, name:row.dataset.name, rarity:row.dataset.rarity, enchant:0 });
+          renderPickedList();
+          searchInput.value = '';
+          resultsBox.classList.remove('open');
+        });
+      });
+      resultsBox.classList.add('open');
+    }, 250);
+  });
+
   squadDetail.querySelector('#scSubmit').addEventListener('click', async ()=>{
-    const loadout = squadDetail.querySelector('#scLoadout').value.trim();
     const goal = squadDetail.querySelector('#scGoal').value.trim();
-    if (!loadout) { toast('Заполни снаряжение'); return; }
+    if (pickedItems.length === 0) { toast('Добавь хотя бы один предмет снаряжения'); return; }
+    // компактная текстовая строка для показа в ленте — сама структура (rarity/enchant) не теряется,
+    // просто в squad_listings.loadout сейчас хранится как текст; при желании расширить в отдельные поля позже
+    const loadout = pickedItems.map(it => it.enchant > 0 ? `${it.name} +${it.enchant}` : it.name).join(', ');
 
     if (isTelegram) {
       const characterId = myCharacters.find(c=>c.is_primary)?.id || myCharacters[0]?.id;
