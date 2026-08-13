@@ -2,7 +2,7 @@
 // POST { initData, dealId, confirmed:true }                        → "обмен состоялся"
 // POST { initData, dealId, confirmed:false, comment, screenshotUrl } → "не состоялся" → уходит в спор
 
-import { authenticate } from './_lib.js';
+import { authenticate, notifyUser } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -21,6 +21,7 @@ export default async function handler(req, res) {
   if (deal.party_a !== userId && deal.party_b !== userId) {
     return res.status(403).json({ error: 'ты не участник этой сделки' });
   }
+  const counterpartyId = deal.party_a === userId ? deal.party_b : deal.party_a;
 
   // одна строка на пользователя — если уже подтверждал, апдейтим, не плодим дубли
   const { error: confErr } = await supabaseAdmin
@@ -37,6 +38,17 @@ export default async function handler(req, res) {
       admin_verdict: 'pending',
     });
     await supabaseAdmin.from('trade_deals').update({ status: 'disputed', updated_at: new Date().toISOString() }).eq('id', dealId);
+
+    await notifyUser(supabaseAdmin, counterpartyId, 'notify_trade_request',
+      `⚠️ По вашей сделке открыт спор — вторая сторона отметила «не состоялась». Разбором займётся администратор.`);
+    // администратора уведомляем напрямую, без проверки notification_preferences —
+    // это его рабочий инструмент, а не опциональная рассылка
+    if (process.env.ADMIN_TELEGRAM_ID) {
+      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: process.env.ADMIN_TELEGRAM_ID, text: `🆘 Новый спор по сделке ${dealId}. Комментарий: ${comment || '—'}` }),
+      }).catch(()=>{});
+    }
     return res.status(200).json({ status: 'disputed' });
   }
 
@@ -47,6 +59,7 @@ export default async function handler(req, res) {
   const bothConfirmed = allConfirmations?.length === 2 && allConfirmations.every(c => c.confirmed);
   if (bothConfirmed) {
     await supabaseAdmin.from('trade_deals').update({ status: 'completed', updated_at: new Date().toISOString() }).eq('id', dealId);
+    await notifyUser(supabaseAdmin, counterpartyId, 'notify_trade_request', `✅ Сделка подтверждена обеими сторонами и закрыта.`);
     return res.status(200).json({ status: 'completed' });
   }
 
