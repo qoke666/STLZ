@@ -127,6 +127,11 @@ export async function notifyUser(supabaseAdmin, userId, prefKey, text) {
     // если строки настроек ещё нет вообще — считаем это дефолтом "включено" (см. схему)
     if (prefs && prefs[prefKey] === false) return;
 
+    // В ленту внутри аппа падает независимо от того, есть ли у юзера Telegram —
+    // это единственное место, где вообще можно узнать об уведомлении для VK-only
+    // аккаунтов в будущем (сейчас такого не бывает, но лента уже готова к этому).
+    await supabaseAdmin.from('notifications').insert({ user_id: userId, text: stripHtml(text) });
+
     const { data: identity } = await supabaseAdmin
       .from('platform_identities')
       .select('platform_user_id')
@@ -143,4 +148,8 @@ export async function notifyUser(supabaseAdmin, userId, prefKey, text) {
   } catch (err) {
     console.error('notifyUser failed (не критично, продолжаем):', err);
   }
+}
+
+function stripHtml(text) {
+  return text.replace(/<[^>]+>/g, '');
 }
