@@ -2,6 +2,9 @@
   "functions": {
     "api/admin-seed-items.js": {
       "maxDuration": 60
+    },
+    "api/admin-add-promo.js": {
+      "maxDuration": 30
     }
   }
 }
