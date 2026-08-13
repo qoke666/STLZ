@@ -110,3 +110,37 @@ export async function authenticate(req, res) {
   const userId = await getOrCreateUser(supabaseAdmin, tgUser);
   return { supabaseAdmin, userId, tgUser };
 }
+
+// Отправить уведомление конкретному users.id в его Telegram — но только если у него
+// включена соответствующая галка в notification_preferences (prefKey — одно из полей
+// этой таблицы, например 'notify_trade_request'). Тихо ничего не делает, если:
+// - юзер выключил этот тип уведомлений,
+// - у него нет привязанного Telegram (в теории может быть только VK),
+// - сама отправка не удалась (не роняем основной запрос из-за упавшего уведомления).
+export async function notifyUser(supabaseAdmin, userId, prefKey, text) {
+  try {
+    const { data: prefs } = await supabaseAdmin
+      .from('notification_preferences')
+      .select(prefKey)
+      .eq('user_id', userId)
+      .maybeSingle();
+    // если строки настроек ещё нет вообще — считаем это дефолтом "включено" (см. схему)
+    if (prefs && prefs[prefKey] === false) return;
+
+    const { data: identity } = await supabaseAdmin
+      .from('platform_identities')
+      .select('platform_user_id')
+      .eq('user_id', userId)
+      .eq('platform', 'telegram')
+      .maybeSingle();
+    if (!identity) return;
+
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: identity.platform_user_id, text, parse_mode: 'HTML' }),
+    });
+  } catch (err) {
+    console.error('notifyUser failed (не критично, продолжаем):', err);
+  }
+}
