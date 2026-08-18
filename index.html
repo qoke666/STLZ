@@ -663,6 +663,12 @@ async function openNotifications(){
 document.getElementById('bellIcon').addEventListener('click', openNotifications);
 checkUnreadNotifications();
 
+// notifications — приватная таблица (никакой публичной select-политики для anon
+// специально нет), поэтому настоящий Realtime сюда не дотянется без Supabase Auth,
+// которого у нас нет (используем свою Telegram-авторизацию). Вместо этого —
+// лёгкий поллинг раз в 30 секунд, только пока мини-апп открыт и активен.
+setInterval(() => { if (isTelegram && document.visibilityState === 'visible') checkUnreadNotifications(); }, 30000);
+
 
 const promos = [
   {code:'EXBO-SUMMER26', status:'истекает через 4 ч', kind:'sell'},
@@ -1094,6 +1100,20 @@ function renderTradeFeed(){
 }
 loadTrades();
 
+// Realtime: любое изменение в trades или trade_deals (новое объявление, кто-то
+// откликнулся, сделка закрылась) — просто перезагружаем ленту заново. Это не
+// точечный патч конкретной карточки, а полный re-fetch списка — так надёжнее
+// и код не расходится с обычным loadTrades(), которым мы и так уже пользуемся.
+// Открытая деталь сделки (tradeDetail) при этом не трогается — рендерится
+// только #tradeFeed, так что если ты сейчас смотришь конкретное объявление,
+// его не выдернет у тебя из-под рук.
+if (db) {
+  db.channel('trades-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'trades' }, () => loadTrades())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'trade_deals' }, () => loadTrades())
+    .subscribe();
+}
+
 function openTrade(idx){
   const t = trades[idx];
   const b = badgeInfo(t);
@@ -1447,6 +1467,12 @@ function closeSquadCreate(){
   setBackButton(null);
 }
 loadSquad();
+
+if (db) {
+  db.channel('squad-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'squad_listings' }, () => loadSquad())
+    .subscribe();
+}
 
 </script>
 
