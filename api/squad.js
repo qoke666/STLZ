@@ -2,7 +2,7 @@
 // POST { initData, action:'list' }                                → активные объявления
 // POST { initData, action:'create', characterId, loadout, goal }  → новое объявление
 
-import { authenticate } from './_lib.js';
+import { authenticate, checkRateLimit } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -30,6 +30,9 @@ export default async function handler(req, res) {
     if (!character || character.user_id !== userId) {
       return res.status(403).json({ error: 'это не твой персонаж' });
     }
+
+    const allowed = await checkRateLimit(supabaseAdmin, userId, 'squad_create', 30);
+    if (!allowed) return res.status(429).json({ error: 'слишком часто — подожди немного перед новым объявлением' });
 
     const { data, error } = await supabaseAdmin
       .from('squad_listings')
