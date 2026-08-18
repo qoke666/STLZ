@@ -1,7 +1,7 @@
 // файл: /api/trades-respond.js
 // POST { initData, tradeId } → отклик на объявление, создаёт trade_deal между автором и откликнувшимся
 
-import { authenticate, notifyUser, checkRateLimit } from './_lib.js';
+import { authenticate, notifyUser, checkRateLimit, getDisplayNickname } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -30,10 +30,10 @@ export default async function handler(req, res) {
 
   await supabaseAdmin.from('trades').update({ status: 'agreed', updated_at: new Date().toISOString() }).eq('id', trade.id);
 
-  const { data: responder } = await supabaseAdmin.from('users').select('display_name').eq('id', userId).single();
+  const nickname = await getDisplayNickname(supabaseAdmin, userId);
   await notifyUser(
     supabaseAdmin, trade.creator_id, 'notify_trade_request',
-    `🔄 <b>${responder?.display_name || 'Игрок'}</b> откликнулся на твоё объявление: «${trade.give_item}» → «${trade.want_item}». Открой STALZON, вкладка «Обмен».`
+    `🔄 <b>${nickname}</b> откликнулся на твоё объявление: «${trade.give_item}» → «${trade.want_item}». Открой STALZON, вкладка «Обмен».`
   );
 
   return res.status(200).json({ deal });
