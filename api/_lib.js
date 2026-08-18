@@ -161,6 +161,23 @@ function stripHtml(text) {
   return text.replace(/<[^>]+>/g, '');
 }
 
+// Единая логика "как показывать человека другим" — везде должен быть игровой
+// ник (game_characters), а не имя из Telegram (users.display_name). Последнее —
+// это то, что человек назвал себя в самом Telegram, часто вообще не связано
+// с тем, как его знают в игре, и раньше по ошибке подставлялось в уведомления.
+export async function getDisplayNickname(supabaseAdmin, userId) {
+  const { data: char } = await supabaseAdmin
+    .from('game_characters')
+    .select('nickname')
+    .eq('user_id', userId)
+    .eq('is_primary', true)
+    .maybeSingle();
+  if (char?.nickname) return char.nickname;
+
+  const { data: user } = await supabaseAdmin.from('users').select('display_name').eq('id', userId).single();
+  return user?.display_name || 'Игрок';
+}
+
 // Общая защита от спама действиями: не даёт одному user_id делать одно и то же
 // действие чаще, чем раз в minSeconds. Возвращает true, если действие разрешено
 // (и сразу же логирует его — так что следующий вызов уже увидит его в истории);
