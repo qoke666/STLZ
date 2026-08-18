@@ -96,6 +96,11 @@
   .notif-row time{ display:block; font-family:'JetBrains Mono', monospace; font-size:9.5px; color:var(--bone-faint); margin-top:4px; }
   .notif-empty{ padding:20px 16px; text-align:center; font-size:12px; color:var(--bone-faint); }
 
+  .subtab-row{ display:flex; gap:6px; margin-bottom:16px; }
+  .subtab{ flex:1; text-align:center; padding:9px 0; font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.04em; text-transform:uppercase; color:var(--bone-faint); border:1px solid var(--line); background:var(--bg-panel); cursor:pointer; position:relative; }
+  .subtab.active{ color:var(--amber); border-color:var(--amber); background:var(--bg-panel-2); }
+  .subtab-dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--sell); margin-left:5px; vertical-align:middle; }
+
   /* ---------- CONTENT / SCREENS ---------- */
   .content{ flex:1; overflow-y:auto; position:relative; }
   .screen{ display:none; padding:16px 16px 100px; animation:fadeIn 0.18s ease; }
@@ -334,9 +339,17 @@
 
     <!-- ===== TRADE / EXCHANGE ===== -->
     <div class="screen" data-screen="trade">
+      <div class="subtab-row" id="tradeSubtabs">
+        <div class="subtab active" data-sub="feed">Лента</div>
+        <div class="subtab" data-sub="mydeals">Мои сделки <span class="subtab-dot" id="myDealsDot" style="display:none;"></span></div>
+      </div>
       <div id="tradeList">
         <div class="panel-label">прямой обмен между игроками <b>· не аукцион</b></div>
         <div id="tradeFeed"></div>
+      </div>
+      <div id="myDealsList" style="display:none;">
+        <div class="panel-label">сделки, требующие твоего внимания</div>
+        <div id="myDealsFeed"></div>
       </div>
       <div class="detail" id="tradeDetail"></div>
       <div class="fab" id="tradeCreateBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
@@ -1118,9 +1131,155 @@ loadTrades();
 if (db) {
   db.channel('trades-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'trades' }, () => loadTrades())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'trade_deals' }, () => loadTrades())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'trade_deals' }, () => { loadTrades(); loadMyDeals(); })
     .subscribe();
 }
+
+/* ---------------- MY DEALS (обе стороны сделки видят и могут подтвердить/оспорить) ---------------- */
+const myDealsFeed = document.getElementById('myDealsFeed');
+const myDealsList = document.getElementById('myDealsList');
+const myDealsDot = document.getElementById('myDealsDot');
+let myDeals = [];
+
+async function loadMyDeals(){
+  if (!isTelegram) return;
+  const res = await callApi('trades-my-deals', {});
+  if (!res) return;
+  myDeals = res.deals;
+  myDealsDot.style.display = myDeals.some(d => d.iAlreadyConfirmed === null) ? 'inline-block' : 'none';
+  renderMyDealsFeed();
+}
+
+function renderMyDealsFeed(){
+  if (myDeals.length === 0) {
+    myDealsFeed.innerHTML = `<div class="notif-empty">Пока нет сделок, которые ждут твоего действия</div>`;
+    return;
+  }
+  myDealsFeed.innerHTML = '';
+  myDeals.forEach((d, idx) => {
+    const card = document.createElement('div');
+    card.className = 'trade-card';
+    const statusLabel = d.status === 'disputed' ? 'на рассмотрении у админа' : (d.iAlreadyConfirmed === null ? 'ждёт твоего подтверждения' : 'ждём вторую сторону');
+    card.innerHTML = `
+      <div class="trade-swap">
+        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${esc(d.giveItem)}</div></div>
+        <div class="trade-arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${esc(d.wantItem)}</div></div>
+      </div>
+      <div class="trade-user">
+        <div class="trade-user-name">с ${esc(d.counterpartyName)} · ${statusLabel}</div>
+      </div>`;
+    card.addEventListener('click', ()=> openMyDeal(idx));
+    myDealsFeed.appendChild(card);
+  });
+}
+
+function openMyDeal(idx){
+  const d = myDeals[idx];
+  tradeDetail.innerHTML = `
+    <div class="detail-back" id="myDealBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к моим сделкам</div>
+    <div class="panel-label">сделка с ${esc(d.counterpartyName)}</div>
+    <div class="trade-card" style="cursor:default;">
+      <div class="trade-swap">
+        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${esc(d.giveItem)}</div></div>
+        <div class="trade-arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${esc(d.wantItem)}</div></div>
+      </div>
+    </div>
+    <div id="myDealConfirmSlot"></div>
+  `;
+  tradeDetail.querySelector('#myDealBack').addEventListener('click', closeMyDeal);
+
+  const slot = document.getElementById('myDealConfirmSlot');
+  if (d.status === 'disputed') {
+    slot.innerHTML = `<div class="confirm-box"><p style="margin:0;">Эта сделка помечена как спорная — решение принимает администратор, тебе сейчас ничего делать не нужно.</p></div>`;
+  } else if (d.iAlreadyConfirmed !== null) {
+    slot.innerHTML = `<div class="confirm-box"><p style="margin:0;">Ты уже отметил(а) эту сделку как «${d.iAlreadyConfirmed ? 'состоялась' : 'не состоялась'}». Ждём вторую сторону.</p></div>`;
+  } else {
+    renderConfirmDisputeUI(slot, d.id, () => loadMyDeals());
+  }
+
+  tradeList.style.display = 'none';
+  myDealsList.style.display = 'none';
+  tradeDetail.classList.add('active');
+  setBackButton(closeMyDeal);
+}
+function closeMyDeal(){
+  tradeDetail.classList.remove('active');
+  if (document.querySelector('#tradeSubtabs .subtab[data-sub="mydeals"]').classList.contains('active')) {
+    myDealsList.style.display = 'block';
+  } else {
+    tradeList.style.display = 'block';
+  }
+  setBackButton(null);
+}
+
+// Общий рендер кнопок "состоялась/не состоялась" — используется и тут, и в openTrade()
+// сразу после отклика, чтобы не дублировать один и тот же кусок дважды.
+function renderConfirmDisputeUI(slot, dealId, onRefresh){
+  slot.innerHTML = `
+    <div class="confirm-box">
+      <p><b style="color:var(--amber)">Подтверди статус сделки.</b> После того как обмен реально произошёл в игре — отметь честно, состоялся ли он.</p>
+      <div class="actions confirm-actions">
+        <div class="btn done" id="myDealBtnDone">Обмен состоялся</div>
+        <div class="btn fail" id="myDealBtnFail">Не состоялся</div>
+      </div>
+    </div>`;
+  slot.querySelector('#myDealBtnDone').addEventListener('click', async ()=>{
+    const res = await callApi('trades-confirm', { dealId, confirmed: true });
+    if (!res) return;
+    toast('Отмечено: сделка завершена ✓');
+    tg?.HapticFeedback?.notificationOccurred('success');
+    slot.innerHTML = '<div class="confirm-box"><p style="margin:0;">Готово. Ждём подтверждения от второй стороны, чтобы закрыть сделку.</p></div>';
+    onRefresh();
+  });
+  slot.querySelector('#myDealBtnFail').addEventListener('click', ()=>{
+    slot.innerHTML = `
+      <div class="confirm-box" style="border-color:var(--sell);">
+        <p><b style="color:var(--sell)">Опишите, что пошло не так.</b> По спорным сделкам решение принимает вручную администратор.</p>
+        <textarea id="myDealDisputeComment" placeholder="Например: договорились обменяться, но вторая сторона не вышла на точку..." style="width:100%; min-height:64px; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12px; padding:9px; margin-bottom:10px; resize:vertical;"></textarea>
+        <div class="actions confirm-actions">
+          <div class="btn sell" id="myDealBtnSendDispute">Отправить администратору</div>
+        </div>
+      </div>`;
+    slot.querySelector('#myDealBtnSendDispute').addEventListener('click', async ()=>{
+      const comment = slot.querySelector('#myDealDisputeComment')?.value.trim() || null;
+      const res = await callApi('trades-confirm', { dealId, confirmed: false, comment });
+      if (!res) return;
+      tg?.HapticFeedback?.notificationOccurred('warning');
+      slot.innerHTML = `
+        <div class="confirm-box">
+          <p style="margin-bottom:12px;">Спор зафиксирован и отправлен администратору. До решения сделка помечена как <b style="color:var(--amber)">на рассмотрении</b> — это не портит репутацию сторон автоматически.</p>
+          <div class="actions">
+            <div class="btn" id="myDealBtnContactAdmin" style="border-color:var(--amber); color:var(--amber);">Написать администратору в ТГ</div>
+          </div>
+        </div>`;
+      slot.querySelector('#myDealBtnContactAdmin').addEventListener('click', ()=>{
+        const url = 'https://t.me/hestonchef';
+        if (tg?.openTelegramLink) tg.openTelegramLink(url); else window.open(url, '_blank');
+      });
+      toast('Спор отправлен администратору');
+      onRefresh();
+    });
+  });
+}
+
+document.querySelectorAll('#tradeSubtabs .subtab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('#tradeSubtabs .subtab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    tg?.HapticFeedback?.impactOccurred('light');
+    if (tab.dataset.sub === 'mydeals') {
+      tradeList.style.display = 'none';
+      myDealsList.style.display = 'block';
+      loadMyDeals();
+    } else {
+      myDealsList.style.display = 'none';
+      tradeList.style.display = 'block';
+    }
+  });
+});
+loadMyDeals();
 
 function openTrade(idx){
   const t = trades[idx];
