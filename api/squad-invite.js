@@ -1,7 +1,7 @@
 // файл: /api/squad-invite.js
 // POST { initData, listingId } → пригласить автора объявления в пачку
 
-import { authenticate, notifyUser, checkRateLimit } from './_lib.js';
+import { authenticate, notifyUser, checkRateLimit, getDisplayNickname } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -48,7 +48,7 @@ export default async function handler(req, res) {
       if (inviterListing?.loadout) loadoutText = ` Снаряжение: ${inviterListing.loadout}.`;
     }
 
-    const nickname = inviterChar?.nickname || 'Игрок';
+    const nickname = inviterChar?.nickname || await getDisplayNickname(supabaseAdmin, userId);
 
     await notifyUser(
       supabaseAdmin, listing.character.user_id, 'notify_squad_invite',
