@@ -418,6 +418,19 @@ try {
   db = null;
 }
 
+/* ---------------- XSS SAFETY ---------------- */
+// Любой текст, который придумал пользователь (название предмета, ник, цель,
+// комментарий и т.д.) — потенциально вредоносный, если вставлять его в innerHTML
+// как есть: кто-то может вписать вместо обычного текста <img onerror=...> и это
+// выполнится у всех, кто откроет тот же экран (объявления публичные). esc()
+// оборачивает такой текст перед подстановкой в шаблон — используется везде ниже,
+// где переменная пользователя попадает в HTML-разметку.
+function esc(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
+}
+
 /* ---------------- TELEGRAM WEBAPP INTEGRATION ---------------- */
 const tg = window.Telegram?.WebApp;
 if (tg) {
@@ -505,8 +518,8 @@ function renderHeader(){
 function renderCharSwitcher(){
   const rows = myCharacters.map((c, i) => `
     <div class="char-row ${i===activeCharIndex?'active':''}" data-idx="${i}">
-      <div class="char-row-name">${c.nickname}</div>
-      <div class="char-row-meta">${c.region} · ${c.faction}${c.is_primary ? ' · основной' : ''}</div>
+      <div class="char-row-name">${esc(c.nickname)}</div>
+      <div class="char-row-meta">${esc(c.region)} · ${esc(c.faction)}${c.is_primary ? ' · основной' : ''}</div>
     </div>`).join('');
   charSwitcher.innerHTML = rows + `<div class="char-add-row" id="charAddRow">+ привязать ещё персонажа</div>`;
   charSwitcher.querySelectorAll('.char-row').forEach(row=>{
@@ -636,7 +649,7 @@ async function openNotifications(){
   } else {
     notifPanel.innerHTML = res.notifications.map(n => `
       <div class="notif-row ${n.is_read ? '' : 'unread'}">
-        ${n.text}
+        ${esc(n.text)}
         <time>${timeAgo(n.created_at)}</time>
       </div>`).join('');
   }
@@ -767,7 +780,7 @@ function renderPromoTable(list){
     row.className = 'trow';
     row.innerHTML = `
       <div class="trow-ic">%</div>
-      <div class="trow-body"><div class="trow-title">${p.code}</div><div class="trow-sub ${p.kind}">${p.status}</div></div>
+      <div class="trow-body"><div class="trow-title">${esc(p.code)}</div><div class="trow-sub ${p.kind}">${esc(p.status)}</div></div>
       <button class="trow-val">копир.</button>`;
     row.querySelector('.trow-val').addEventListener('click', (e)=>{
       e.stopPropagation();
@@ -815,7 +828,7 @@ function renderGuidesTable(){
   guides.forEach((g,i)=>{
     const row = document.createElement('div');
     row.className = 'trow';
-    row.innerHTML = `<div class="trow-ic">▤</div><div class="trow-body"><div class="trow-title">${g.title}</div><div class="trow-sub">${g.meta||''}</div></div>`;
+    row.innerHTML = `<div class="trow-ic">▤</div><div class="trow-body"><div class="trow-title">${esc(g.title)}</div><div class="trow-sub">${esc(g.meta||'')}</div></div>`;
     row.addEventListener('click', ()=> openGuide(i));
     guidesTable.appendChild(row);
   });
@@ -836,12 +849,12 @@ function openGuide(i){
   // steps могут быть либо строкой (старые демо-данные), либо {text, imageUrl} — поддерживаем оба
   const stepsHtml = g.steps.map((s, idx) => {
     const text = typeof s === 'string' ? s : s.text;
-    const img = typeof s === 'object' && s.imageUrl ? `<img class="gstep-img" src="${s.imageUrl}" alt="">` : '';
-    return `<div class="gstep"><div class="gstep-n">${String(idx+1).padStart(2,'0')}</div><div style="flex:1;"><div class="gstep-t">${text}</div>${img}</div></div>`;
+    const img = typeof s === 'object' && s.imageUrl ? `<img class="gstep-img" src="${esc(s.imageUrl)}" alt="">` : '';
+    return `<div class="gstep"><div class="gstep-n">${String(idx+1).padStart(2,'0')}</div><div style="flex:1;"><div class="gstep-t">${esc(text)}</div>${img}</div></div>`;
   }).join('');
   guideDetail.innerHTML = `
     <div class="detail-back" id="guideBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к гайдам</div>
-    <div class="item-head"><div class="item-thumb">▤</div><div><div class="item-name">${g.title}</div><div class="item-meta">${g.meta||''}</div></div></div>
+    <div class="item-head"><div class="item-thumb">▤</div><div><div class="item-name">${esc(g.title)}</div><div class="item-meta">${esc(g.meta||'')}</div></div></div>
     <div class="guide-steps">${stepsHtml}</div>`;
   function closeGuide(){
     guideDetail.classList.remove('active'); guidesList.style.display='block';
@@ -1066,14 +1079,14 @@ function renderTradeFeed(){
     card.className = 'trade-card';
     card.innerHTML = `
       <div class="trade-swap">
-        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${t.give}</div></div>
+        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${esc(t.give)}</div></div>
         <div class="trade-arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${t.want}</div></div>
+        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${esc(t.want)}</div></div>
       </div>
       <div class="trade-user">
-        <div class="trade-user-ic">${t.user.slice(0,2).toUpperCase()}</div>
-        <div class="trade-user-name">${t.user} · ${t.days} дн. в аппе</div>
-        <div class="badge ${b.cls}">${b.label}</div>
+        <div class="trade-user-ic">${esc(t.user.slice(0,2).toUpperCase())}</div>
+        <div class="trade-user-name">${esc(t.user)} · ${t.days} дн. в аппе</div>
+        <div class="badge ${b.cls}">${esc(b.label)}</div>
       </div>`;
     card.addEventListener('click', ()=> openTrade(idx));
     tradeFeed.appendChild(card);
@@ -1089,10 +1102,10 @@ function openTrade(idx){
 
     <div class="profile-card">
       <div class="profile-top">
-        <div class="trade-user-ic" style="width:38px;height:38px;font-size:13px;">${t.user.slice(0,2).toUpperCase()}</div>
+        <div class="trade-user-ic" style="width:38px;height:38px;font-size:13px;">${esc(t.user.slice(0,2).toUpperCase())}</div>
         <div style="flex:1;min-width:0;">
-          <div class="profile-name">${t.user}</div>
-          <div class="badge ${b.cls}">${b.label}</div>
+          <div class="profile-name">${esc(t.user)}</div>
+          <div class="badge ${b.cls}">${esc(b.label)}</div>
         </div>
       </div>
       <div class="profile-stats">
@@ -1105,9 +1118,9 @@ function openTrade(idx){
     <div class="panel-label">предложение</div>
     <div class="trade-card" style="cursor:default;">
       <div class="trade-swap">
-        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${t.give}</div></div>
+        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${esc(t.give)}</div></div>
         <div class="trade-arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${t.want}</div></div>
+        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${esc(t.want)}</div></div>
       </div>
     </div>
 
@@ -1268,11 +1281,11 @@ function renderSquadFeed(){
     card.className = 'trade-card';
     card.innerHTML = `
       <div class="trade-item-label">снаряжение</div>
-      <div class="trow-title" style="margin-bottom:8px;">${s.loadout}</div>
-      ${s.goal ? `<div class="trow-sub" style="margin-bottom:10px;">${s.goal}</div>` : ''}
+      <div class="trow-title" style="margin-bottom:8px;">${esc(s.loadout)}</div>
+      ${s.goal ? `<div class="trow-sub" style="margin-bottom:10px;">${esc(s.goal)}</div>` : ''}
       <div class="trade-user">
-        <div class="trade-user-ic">${(s.nickname||'??').slice(0,2).toUpperCase()}</div>
-        <div class="trade-user-name">${s.nickname || 'Игрок'} · ${s.faction || '—'} · ${s.region || ''}</div>
+        <div class="trade-user-ic">${esc((s.nickname||'??').slice(0,2).toUpperCase())}</div>
+        <div class="trade-user-name">${esc(s.nickname || 'Игрок')} · ${esc(s.faction || '—')} · ${esc(s.region || '')}</div>
       </div>`;
     card.addEventListener('click', ()=> openSquad(idx));
     squadFeed.appendChild(card);
@@ -1296,12 +1309,12 @@ function openSquad(idx){
     <div class="detail-back" id="squadBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к тиммейтам</div>
     <div class="profile-card">
       <div class="profile-top">
-        <div class="trade-user-ic" style="width:38px;height:38px;font-size:13px;">${(s.nickname||'??').slice(0,2).toUpperCase()}</div>
-        <div><div class="profile-name">${s.nickname || 'Игрок'}</div><div class="badge neutral">${s.faction || '—'} · ${s.region || ''}</div></div>
+        <div class="trade-user-ic" style="width:38px;height:38px;font-size:13px;">${esc((s.nickname||'??').slice(0,2).toUpperCase())}</div>
+        <div><div class="profile-name">${esc(s.nickname || 'Игрок')}</div><div class="badge neutral">${esc(s.faction || '—')} · ${esc(s.region || '')}</div></div>
       </div>
     </div>
     <div class="panel-label">снаряжение</div>
-    <div class="trade-card" style="cursor:default;"><div class="trow-title" style="margin-bottom:6px;">${s.loadout}</div>${s.goal ? `<div class="trow-sub">${s.goal}</div>` : ''}</div>
+    <div class="trade-card" style="cursor:default;"><div class="trow-title" style="margin-bottom:6px;">${esc(s.loadout)}</div>${s.goal ? `<div class="trow-sub">${esc(s.goal)}</div>` : ''}</div>
     <div class="actions" style="margin-top:14px;"><div class="btn buy" id="squadInviteBtn">Пригласить в пачку</div></div>
   `;
   squadDetail.querySelector('#squadBack').addEventListener('click', closeSquad);
@@ -1362,7 +1375,7 @@ document.getElementById('squadCreateBtn').addEventListener('click', async ()=>{
     pickedListBox.innerHTML = pickedItems.map((it, idx) => `
       <div class="picked-item-row">
         <div class="rarity-dot" style="background:${rarityColor(it.rarity)}"></div>
-        <div class="name">${it.name}</div>
+        <div class="name">${esc(it.name)}</div>
         <select class="pickedEnchant" data-idx="${idx}">
           ${Array.from({length:16}, (_,n)=>`<option value="${n}" ${n===it.enchant?'selected':''}>${n===0?'без заточки':'+'+n}</option>`).join('')}
         </select>
@@ -1390,9 +1403,9 @@ document.getElementById('squadCreateBtn').addEventListener('click', async ()=>{
         .limit(8);
       if (error || !data) { resultsBox.classList.remove('open'); return; }
       resultsBox.innerHTML = data.map(it => `
-        <div class="item-search-row" data-id="${it.id}" data-name="${it.name}" data-rarity="${it.rarity}">
+        <div class="item-search-row" data-id="${esc(it.id)}" data-name="${esc(it.name)}" data-rarity="${esc(it.rarity)}">
           <div class="rarity-dot" style="background:${rarityColor(it.rarity)}"></div>
-          <div class="name">${it.name}</div>
+          <div class="name">${esc(it.name)}</div>
         </div>`).join('') || `<div class="item-search-row" style="color:var(--bone-faint);">ничего не найдено</div>`;
       resultsBox.querySelectorAll('.item-search-row[data-id]').forEach(row=>{
         row.addEventListener('click', ()=>{
