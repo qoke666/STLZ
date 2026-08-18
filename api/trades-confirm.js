@@ -2,7 +2,7 @@
 // POST { initData, dealId, confirmed:true }                        → "обмен состоялся"
 // POST { initData, dealId, confirmed:false, comment, screenshotUrl } → "не состоялся" → уходит в спор
 
-import { authenticate, notifyUser } from './_lib.js';
+import { authenticate, notifyUser, checkRateLimit } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -30,6 +30,11 @@ export default async function handler(req, res) {
   if (confErr) return res.status(500).json({ error: confErr.message });
 
   if (!confirmed) {
+    // именно тут особенно важно ограничить частоту — это ровно тот вектор
+    // "ложных жалоб пачкой", который мы обсуждали при проектировании доверия
+    const allowed = await checkRateLimit(supabaseAdmin, userId, 'trade_dispute', 60);
+    if (!allowed) return res.status(429).json({ error: 'слишком много споров подряд — подожди немного' });
+
     // "не состоялось" — сразу заводим спор, но статус сделки НЕ меняем в скам/бан автоматически,
     // окончательное слово за админом (см. trade_disputes.admin_verdict)
     await supabaseAdmin.from('trade_disputes').insert({
