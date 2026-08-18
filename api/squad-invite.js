@@ -1,7 +1,7 @@
 // файл: /api/squad-invite.js
 // POST { initData, listingId } → пригласить автора объявления в пачку
 
-import { authenticate, notifyUser } from './_lib.js';
+import { authenticate, notifyUser, checkRateLimit } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -11,6 +11,9 @@ export default async function handler(req, res) {
 
   const { listingId } = req.body;
   if (!listingId) return res.status(400).json({ error: 'listingId обязателен' });
+
+  const allowed = await checkRateLimit(supabaseAdmin, userId, 'squad_invite', 5);
+  if (!allowed) return res.status(429).json({ error: 'слишком часто — подожди немного' });
 
   const { data, error } = await supabaseAdmin
     .from('squad_invites')
