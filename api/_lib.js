@@ -35,6 +35,13 @@ export function verifyTelegramInitData(initData) {
 
   if (computedHash !== hash) return null; // подпись не сошлась — данные подделаны или устарели
 
+  // Подпись верна, но это не значит "свежая" — Telegram сам рекомендует не доверять
+  // initData старше суток: если такая ссылка где-то "утекла" (лог, скриншот,
+  // случайный форвард), она иначе продолжала бы работать вечно.
+  const authDate = Number(params.get('auth_date'));
+  const MAX_AGE_SECONDS = 24 * 60 * 60;
+  if (!authDate || (Date.now() / 1000 - authDate) > MAX_AGE_SECONDS) return null;
+
   const userRaw = params.get('user');
   return userRaw ? JSON.parse(userRaw) : null; // { id, username, first_name, ... }
 }
@@ -152,4 +159,27 @@ export async function notifyUser(supabaseAdmin, userId, prefKey, text) {
 
 function stripHtml(text) {
   return text.replace(/<[^>]+>/g, '');
+}
+
+// Общая защита от спама действиями: не даёт одному user_id делать одно и то же
+// действие чаще, чем раз в minSeconds. Возвращает true, если действие разрешено
+// (и сразу же логирует его — так что следующий вызов уже увидит его в истории);
+// false — если рано, тогда эндпоинт должен ответить 429 и НЕ выполнять действие.
+export async function checkRateLimit(supabaseAdmin, userId, action, minSeconds) {
+  const { data: last } = await supabaseAdmin
+    .from('rate_limit_log')
+    .select('created_at')
+    .eq('user_id', userId)
+    .eq('action', action)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (last) {
+    const elapsed = (Date.now() - new Date(last.created_at).getTime()) / 1000;
+    if (elapsed < minSeconds) return false;
+  }
+
+  await supabaseAdmin.from('rate_limit_log').insert({ user_id: userId, action });
+  return true;
 }
