@@ -480,7 +480,15 @@ async function callApi(path, payload = {}) {
       body: JSON.stringify({ initData: tg.initData, ...payload }),
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error || 'api error');
+    if (!res.ok) {
+      // 4xx — это не "бэкенд сломался", а осмысленный отказ (rate limit, валидация,
+      // не твоя запись и т.п.) — показываем текст от сервера как есть, не пугаем зря
+      if (res.status >= 400 && res.status < 500 && json.error) {
+        toast(json.error);
+        return null;
+      }
+      throw new Error(json.error || 'api error');
+    }
     return json;
   } catch (err) {
     console.error('callApi(' + path + ') failed:', err);
