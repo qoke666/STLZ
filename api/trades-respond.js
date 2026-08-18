@@ -1,7 +1,7 @@
 // файл: /api/trades-respond.js
 // POST { initData, tradeId } → отклик на объявление, создаёт trade_deal между автором и откликнувшимся
 
-import { authenticate, notifyUser } from './_lib.js';
+import { authenticate, notifyUser, checkRateLimit } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -11,6 +11,9 @@ export default async function handler(req, res) {
 
   const { tradeId } = req.body;
   if (!tradeId) return res.status(400).json({ error: 'tradeId обязателен' });
+
+  const allowed = await checkRateLimit(supabaseAdmin, userId, 'trade_respond', 10);
+  if (!allowed) return res.status(429).json({ error: 'слишком часто — подожди немного' });
 
   const { data: trade, error: tradeErr } = await supabaseAdmin
     .from('trades').select('id, creator_id, give_item, want_item, status').eq('id', tradeId).single();
