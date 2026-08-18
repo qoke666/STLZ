@@ -3,7 +3,7 @@
 //                                     через anon key напрямую, но так проще держать всё в одном месте)
 // POST { initData, action:'create', giveItem, wantItem } → новое объявление
 
-import { authenticate } from './_lib.js';
+import { authenticate, checkRateLimit } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -24,6 +24,9 @@ export default async function handler(req, res) {
   if (req.body.action === 'create') {
     const { giveItem, wantItem } = req.body;
     if (!giveItem || !wantItem) return res.status(400).json({ error: 'giveItem и wantItem обязательны' });
+
+    const allowed = await checkRateLimit(supabaseAdmin, userId, 'trade_create', 30);
+    if (!allowed) return res.status(429).json({ error: 'слишком часто — подожди немного перед новым объявлением' });
 
     const { data, error } = await supabaseAdmin
       .from('trades')
