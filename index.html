@@ -1523,6 +1523,34 @@ function closeSquad(){
   setBackButton(null);
 }
 
+function openExistingSquadListing(listing){
+  squadDetail.innerHTML = `
+    <div class="detail-back" id="scExistingBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>отмена</div>
+    <div class="panel-label">твоё активное объявление</div>
+    <div class="trade-card" style="cursor:default;">
+      <div class="trow-title" style="margin-bottom:6px;">${esc(listing.loadout)}</div>
+      ${listing.goal ? `<div class="trow-sub">${esc(listing.goal)}</div>` : ''}
+    </div>
+    <div class="confirm-box" style="margin-top:14px;">
+      <p style="margin-bottom:12px;">У тебя может быть только одно активное объявление одновременно. Чтобы создать новое — сначала сними это с публикации.</p>
+      <div class="actions">
+        <div class="btn sell" id="scUnpublishBtn">Снять с публикации</div>
+      </div>
+    </div>`;
+  squadDetail.querySelector('#scExistingBack').addEventListener('click', closeSquadCreate);
+  squadDetail.querySelector('#scUnpublishBtn').addEventListener('click', async ()=>{
+    const res = await callApi('squad-unpublish', { listingId: listing.id });
+    if (!res) return;
+    toast('Объявление снято с публикации');
+    tg?.HapticFeedback?.notificationOccurred('success');
+    closeSquadCreate();
+    loadSquad();
+  });
+  squadList.style.display = 'none';
+  squadDetail.classList.add('active');
+  setBackButton(closeSquadCreate);
+}
+
 document.getElementById('squadCreateBtn').addEventListener('click', async ()=>{
   tg?.HapticFeedback?.impactOccurred('light');
   if (isTelegram) await loadMyCharacters();
@@ -1534,6 +1562,16 @@ document.getElementById('squadCreateBtn').addEventListener('click', async ()=>{
     wireCharacterLinkForm(squadDetail, ()=> document.getElementById('squadCreateBtn').click());
     squadList.style.display = 'none'; squadDetail.classList.add('active'); setBackButton(closeSquadCreate);
     return;
+  }
+
+  // у тебя может быть только одно активное объявление — если оно уже есть,
+  // показываем его вместо формы создания, с кнопкой снять с публикации
+  if (isTelegram) {
+    const res = await callApi('squad', { action: 'my' });
+    if (res?.listing) {
+      openExistingSquadListing(res.listing);
+      return;
+    }
   }
 
   squadDetail.innerHTML = `
