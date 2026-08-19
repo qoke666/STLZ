@@ -1143,7 +1143,7 @@ let myDeals = [];
 
 async function loadMyDeals(){
   if (!isTelegram) return;
-  const res = await callApi('trades-my-deals', {});
+  const res = await callApi('trades', { action: 'my_deals' });
   if (!res) return;
   myDeals = res.deals;
   myDealsDot.style.display = myDeals.some(d => d.iAlreadyConfirmed === null) ? 'inline-block' : 'none';
@@ -1226,7 +1226,7 @@ function renderConfirmDisputeUI(slot, dealId, onRefresh){
       </div>
     </div>`;
   slot.querySelector('#myDealBtnDone').addEventListener('click', async ()=>{
-    const res = await callApi('trades-confirm', { dealId, confirmed: true });
+    const res = await callApi('trades', { action: 'confirm', dealId, confirmed: true });
     if (!res) return;
     toast('Отмечено: сделка завершена ✓');
     tg?.HapticFeedback?.notificationOccurred('success');
@@ -1244,7 +1244,7 @@ function renderConfirmDisputeUI(slot, dealId, onRefresh){
       </div>`;
     slot.querySelector('#myDealBtnSendDispute').addEventListener('click', async ()=>{
       const comment = slot.querySelector('#myDealDisputeComment')?.value.trim() || null;
-      const res = await callApi('trades-confirm', { dealId, confirmed: false, comment });
+      const res = await callApi('trades', { action: 'confirm', dealId, confirmed: false, comment });
       if (!res) return;
       tg?.HapticFeedback?.notificationOccurred('warning');
       slot.innerHTML = `
@@ -1321,7 +1321,7 @@ function openTrade(idx){
   let dealId = null; // заполнится после реального отклика, если мы онлайн
   tradeDetail.querySelector('#tradeRespondBtn').addEventListener('click', async (e)=>{
     if (isTelegram && t.id) {
-      const res = await callApi('trades-respond', { tradeId: t.id });
+      const res = await callApi('trades', { action: 'respond', tradeId: t.id });
       if (!res) return; // callApi уже показал тост с ошибкой
       dealId = res.deal.id;
     }
@@ -1339,7 +1339,7 @@ function openTrade(idx){
       </div>`;
     slot.querySelector('#btnDone').addEventListener('click', async ()=>{
       if (isTelegram && dealId) {
-        const res = await callApi('trades-confirm', { dealId, confirmed:true });
+        const res = await callApi('trades', { action: 'confirm', dealId, confirmed:true });
         if (!res) return;
       }
       toast('Отмечено: сделка завершена ✓ — попадёт в статистику обеих сторон');
@@ -1362,7 +1362,7 @@ function openTrade(idx){
       slot.querySelector('#btnSendDispute').addEventListener('click', async ()=>{
         const comment = slot.querySelector('#disputeComment')?.value.trim() || null;
         if (isTelegram && dealId) {
-          const res = await callApi('trades-confirm', { dealId, confirmed:false, comment });
+          const res = await callApi('trades', { action: 'confirm', dealId, confirmed:false, comment });
           if (!res) return;
         }
         tg?.HapticFeedback?.notificationOccurred('warning');
@@ -1484,7 +1484,7 @@ async function loadSquad(){
   const res = await callApi('squad', { action:'list' });
   if (!res) { renderSquadFeed(); return; }
   squadListings = res.listings.map(s => ({
-    id: s.id, loadout: s.loadout, goal: s.goal,
+    id: s.id, loadout: s.loadout, goal: s.goal, ownerUserId: s.user_id,
     nickname: s.character?.nickname, faction: s.character?.faction, region: s.character?.region,
   }));
   renderSquadFeed();
@@ -1492,6 +1492,7 @@ async function loadSquad(){
 
 function openSquad(idx){
   const s = squadListings[idx];
+  const isMine = isTelegram && myCharacters.length > 0 && s.ownerUserId === myCharacters[0].user_id;
   squadDetail.innerHTML = `
     <div class="detail-back" id="squadBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к тиммейтам</div>
     <div class="profile-card">
@@ -1502,18 +1503,35 @@ function openSquad(idx){
     </div>
     <div class="panel-label">снаряжение</div>
     <div class="trade-card" style="cursor:default;"><div class="trow-title" style="margin-bottom:6px;">${esc(s.loadout)}</div>${s.goal ? `<div class="trow-sub">${esc(s.goal)}</div>` : ''}</div>
-    <div class="actions" style="margin-top:14px;"><div class="btn buy" id="squadInviteBtn">Пригласить в пачку</div></div>
+    <div class="actions" style="margin-top:14px;">
+      ${isMine
+        ? `<div class="btn sell" id="squadUnpublishBtn">Снять с публикации</div>`
+        : `<div class="btn buy" id="squadInviteBtn">Пригласить в пачку</div>`}
+    </div>
   `;
   squadDetail.querySelector('#squadBack').addEventListener('click', closeSquad);
-  squadDetail.querySelector('#squadInviteBtn').addEventListener('click', async (e)=>{
-    if (isTelegram && s.id) {
-      const res = await callApi('squad-invite', { listingId: s.id });
+
+  if (isMine) {
+    squadDetail.querySelector('#squadUnpublishBtn').addEventListener('click', async (e)=>{
+      const res = await callApi('squad', { action: 'unpublish', listingId: s.id });
       if (!res) return;
-    }
-    toast('Приглашение отправлено · ' + (s.nickname || 'игроку'));
-    tg?.HapticFeedback?.notificationOccurred('success');
-    e.target.textContent = '✓ приглашение отправлено';
-  });
+      toast('Объявление снято с публикации');
+      tg?.HapticFeedback?.notificationOccurred('success');
+      closeSquad();
+      loadSquad();
+    });
+  } else {
+    squadDetail.querySelector('#squadInviteBtn').addEventListener('click', async (e)=>{
+      if (isTelegram && s.id) {
+        const res = await callApi('squad', { action: 'invite', listingId: s.id });
+        if (!res) return;
+      }
+      toast('Приглашение отправлено · ' + (s.nickname || 'игроку'));
+      tg?.HapticFeedback?.notificationOccurred('success');
+      e.target.textContent = '✓ приглашение отправлено';
+    });
+  }
+
   squadList.style.display = 'none';
   squadDetail.classList.add('active');
   setBackButton(closeSquad);
@@ -1539,7 +1557,7 @@ function openExistingSquadListing(listing){
     </div>`;
   squadDetail.querySelector('#scExistingBack').addEventListener('click', closeSquadCreate);
   squadDetail.querySelector('#scUnpublishBtn').addEventListener('click', async ()=>{
-    const res = await callApi('squad-unpublish', { listingId: listing.id });
+    const res = await callApi('squad', { action: 'unpublish', listingId: listing.id });
     if (!res) return;
     toast('Объявление снято с публикации');
     tg?.HapticFeedback?.notificationOccurred('success');
