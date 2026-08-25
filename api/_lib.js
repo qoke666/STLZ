@@ -161,6 +161,21 @@ function stripHtml(text) {
   return text.replace(/<[^>]+>/g, '');
 }
 
+// Читает готовую вью user_trust_stats (days_in_app / completed_trades / disputed_trades) —
+// нужно и для бейджей в интерфейсе, и для того, чтобы админ видел контекст при разборе спора.
+export async function getUserTrustStats(supabaseAdmin, userId) {
+  const { data } = await supabaseAdmin
+    .from('user_trust_stats')
+    .select('days_in_app, completed_trades, disputed_trades')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return data || { days_in_app: 0, completed_trades: 0, disputed_trades: 0 };
+}
+
+export function isAdmin(tgUser) {
+  return String(tgUser.id) === process.env.ADMIN_TELEGRAM_ID;
+}
+
 // Единая логика "как показывать человека другим" — везде должен быть игровой
 // ник (game_characters), а не имя из Telegram (users.display_name). Последнее —
 // это то, что человек назвал себя в самом Telegram, часто вообще не связано
