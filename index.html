@@ -636,7 +636,10 @@ function renderSettingsPanel(prefs){
     <div class="settings-row">
       <div class="settings-row-label">${label}</div>
       <div class="toggle ${prefs[key] ? 'on' : ''}" data-key="${key}"></div>
-    </div>`).join('');
+    </div>`).join('')
+    + `<div class="settings-row" id="adminDisputesRow" style="cursor:pointer;">
+         <div class="settings-row-label" style="color:var(--bone-faint); font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.03em;">⚖ Споры на рассмотрении (админ)</div>
+       </div>`;
 
   settingsPanel.querySelectorAll('.toggle').forEach(t=>{
     t.addEventListener('click', async ()=>{
@@ -648,9 +651,112 @@ function renderSettingsPanel(prefs){
       if (!res) t.classList.toggle('on', !newVal); // не сохранилось — откатываем обратно
     });
   });
+
+  // Кнопка видна всем — это не проблема: бэкенд молча откажет всем, кроме
+  // ADMIN_TELEGRAM_ID (403), обычный игрок просто увидит тост "недостаточно прав".
+  settingsPanel.querySelector('#adminDisputesRow').addEventListener('click', openAdminDisputes);
 }
 
 document.getElementById('settingsIcon').addEventListener('click', openSettings);
+
+/* ---------------- ADMIN: РАЗБОР СПОРОВ ---------------- */
+async function openAdminDisputes(){
+  settingsPanel.classList.remove('open');
+  const res = await callApi('trades', { action: 'admin_disputes' });
+  if (!res) return; // callApi уже показал тост (403 "только администратор" для не-админа)
+
+  showScreen('trade'); // переиспользуем экран "Обмен" под detail-контейнер
+  if (res.disputes.length === 0) {
+    tradeDetail.innerHTML = `<div class="notif-empty">Споров на рассмотрении нет</div>`;
+  } else {
+    renderAdminDisputesList(res.disputes);
+  }
+  tradeList.style.display = 'none';
+  myDealsList.style.display = 'none';
+  tradeDetail.classList.add('active');
+  setBackButton(()=>{ tradeDetail.classList.remove('active'); tradeList.style.display = 'block'; setBackButton(null); });
+}
+
+function renderAdminDisputesList(disputes){
+  tradeDetail.innerHTML = `
+    <div class="panel-label">споры на рассмотрении · ${disputes.length}</div>
+    <div id="adminDisputesFeed"></div>`;
+  const feed = tradeDetail.querySelector('#adminDisputesFeed');
+  disputes.forEach((d, idx) => {
+    const card = document.createElement('div');
+    card.className = 'trade-card';
+    card.innerHTML = `
+      <div class="trade-swap">
+        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${esc(d.giveItem)}</div></div>
+        <div class="trade-arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${esc(d.wantItem)}</div></div>
+      </div>
+      <div class="trade-user"><div class="trade-user-name">${esc(d.partyA.nickname)} ↔ ${esc(d.partyB.nickname)}</div></div>`;
+    card.addEventListener('click', ()=> openAdminDisputeDetail(disputes, idx));
+    feed.appendChild(card);
+  });
+}
+
+function partyStatsHtml(label, p, isReporter){
+  return `
+    <div class="stat-row" style="margin-bottom:8px;">
+      <div class="stat"><div class="stat-label">${label}${isReporter ? ' · пожаловался' : ''}</div><div class="stat-val">${esc(p.nickname)}</div></div>
+      <div class="stat"><div class="stat-label">дней в аппе</div><div class="stat-val">${p.days}</div></div>
+      <div class="stat"><div class="stat-label">сделок / споров</div><div class="stat-val" style="${p.disputed>0?'color:var(--sell)':''}">${p.completed} / ${p.disputed}</div></div>
+    </div>`;
+}
+
+function openAdminDisputeDetail(disputes, idx){
+  const d = disputes[idx];
+  tradeDetail.innerHTML = `
+    <div class="detail-back" id="adBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>назад к списку споров</div>
+    <div class="panel-label">предмет спора</div>
+    <div class="trade-card" style="cursor:default; margin-bottom:16px;">
+      <div class="trade-swap">
+        <div class="trade-item"><div class="trade-item-label">отдаёт</div><div class="trade-item-name">${esc(d.giveItem)}</div></div>
+        <div class="trade-arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        <div class="trade-item"><div class="trade-item-label">хочет</div><div class="trade-item-name">${esc(d.wantItem)}</div></div>
+      </div>
+    </div>
+
+    <div class="panel-label">стороны и репутация</div>
+    ${partyStatsHtml('Сторона A', d.partyA, d.reporterIsPartyA)}
+    ${partyStatsHtml('Сторона B', d.partyB, !d.reporterIsPartyA)}
+
+    ${d.comment ? `
+    <div class="panel-label">комментарий жалобщика</div>
+    <div class="trade-card" style="cursor:default; margin-bottom:16px;"><div class="trow-title" style="font-weight:400;">${esc(d.comment)}</div></div>` : ''}
+
+    ${d.responseComment ? `
+    <div class="panel-label">ответ второй стороны</div>
+    <div class="trade-card" style="cursor:default; margin-bottom:16px; border-color:var(--amber);"><div class="trow-title" style="font-weight:400;">${esc(d.responseComment)}</div></div>`
+    : `<div class="panel-label">ответ второй стороны</div>
+    <div class="notif-empty" style="margin-bottom:16px;">Вторая сторона пока не ответила</div>`}
+
+    ${d.alreadyResolved ? `
+    <div class="confirm-box"><p style="margin:0;">Этот спор уже разобран.</p></div>` : `
+    <div class="panel-label">вердикт</div>
+    <div class="actions" style="flex-wrap:wrap; gap:8px;">
+      <div class="btn sell" data-verdict="party_a_at_fault" style="flex:1 1 45%;">Виновата сторона A</div>
+      <div class="btn sell" data-verdict="party_b_at_fault" style="flex:1 1 45%;">Виновата сторона B</div>
+      <div class="btn" data-verdict="misunderstanding" style="flex:1 1 45%; border-color:var(--amber); color:var(--amber);">Недопонимание</div>
+      <div class="btn done" data-verdict="no_fault" style="flex:1 1 45%;">Нет вины</div>
+    </div>`}
+  `;
+  tradeDetail.querySelector('#adBack').addEventListener('click', ()=> renderAdminDisputesList(disputes));
+
+  tradeDetail.querySelectorAll('[data-verdict]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const verdict = btn.dataset.verdict;
+      const res = await callApi('trades', { action: 'admin_resolve', dealId: d.dealId, verdict });
+      if (!res) return;
+      toast('Вердикт вынесен, стороны уведомлены');
+      tg?.HapticFeedback?.notificationOccurred('success');
+      d.alreadyResolved = true;
+      openAdminDisputeDetail(disputes, idx);
+    });
+  });
+}
 
 /* ---------------- IN-APP NOTIFICATIONS ---------------- */
 const notifPanel = document.getElementById('notifPanel');
@@ -1227,7 +1333,28 @@ function openMyDeal(idx){
 
   const slot = document.getElementById('myDealConfirmSlot');
   if (d.status === 'disputed') {
-    slot.innerHTML = `<div class="confirm-box"><p style="margin:0;">Эта сделка помечена как спорная — решение принимает администратор, тебе сейчас ничего делать не нужно.</p></div>`;
+    if (d.isReporter) {
+      slot.innerHTML = `<div class="confirm-box"><p style="margin:0;">Эта сделка на рассмотрении у администратора — твой комментарий уже учтён, ждём решения.</p></div>`;
+    } else if (d.hasResponded) {
+      slot.innerHTML = `<div class="confirm-box"><p style="margin:0;">Твой ответ на спор отправлен администратору — ждём решения.</p></div>`;
+    } else {
+      slot.innerHTML = `
+        <div class="confirm-box" style="border-color:var(--amber);">
+          <p><b style="color:var(--amber)">По этой сделке открыт спор.</b> Вторая сторона отметила её как несостоявшуюся. У тебя есть право ответить — опиши свою версию, прежде чем администратор примет решение.</p>
+          <textarea id="myDealResponseText" placeholder="Твоя версия произошедшего..." style="width:100%; min-height:64px; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12px; padding:9px; margin-bottom:10px; resize:vertical;"></textarea>
+          <div class="actions"><div class="btn" id="myDealSendResponse" style="border-color:var(--amber); color:var(--amber);">Отправить свой ответ</div></div>
+        </div>`;
+      document.getElementById('myDealSendResponse').addEventListener('click', async ()=>{
+        const comment = document.getElementById('myDealResponseText').value.trim();
+        if (!comment) { toast('Напиши хотя бы пару слов'); return; }
+        const res = await callApi('trades', { action: 'dispute_respond', dealId: d.id, comment });
+        if (!res) return;
+        toast('Твой ответ отправлен администратору');
+        tg?.HapticFeedback?.notificationOccurred('success');
+        d.hasResponded = true;
+        openMyDeal(idx);
+      });
+    }
   } else if (d.iAlreadyConfirmed !== null) {
     slot.innerHTML = `<div class="confirm-box"><p style="margin:0;">Ты уже отметил(а) эту сделку как «${d.iAlreadyConfirmed ? 'состоялась' : 'не состоялась'}». Ждём вторую сторону.</p></div>`;
   } else {
