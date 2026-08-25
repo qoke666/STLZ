@@ -444,6 +444,28 @@ function esc(str) {
   return div.innerHTML;
 }
 
+/* ---------------- LIGHT CACHING ---------------- */
+// Для данных, которые меняются редко (промокоды добавляет только админ, гайды тоже) —
+// не обязательно ходить в сеть каждый раз, когда мини-апп открывается заново.
+// sessionStorage живёт, пока открыта вкладка/сессия Telegram — как раз то, что нужно:
+// не "навсегда" (не увидишь новый промокод сутками), но и не гоняем сеть просто так.
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
+function cacheGet(key){
+  try {
+    const raw = sessionStorage.getItem('stlz_cache_' + key);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL_MS) return null;
+    return data;
+  } catch { return null; }
+}
+function cacheSet(key, data){
+  try { sessionStorage.setItem('stlz_cache_' + key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+function cacheClear(key){
+  try { sessionStorage.removeItem('stlz_cache_' + key); } catch {}
+}
+
 /* ---------------- TELEGRAM WEBAPP INTEGRATION ---------------- */
 const tg = window.Telegram?.WebApp;
 if (tg) {
@@ -483,6 +505,8 @@ function setBackButton(onBack){
 // ничего не ломая (важно после сегодняшнего урока с синтаксической ошибкой).
 const isTelegram = !!(tg && tg.initData);
 let myCharacters = [];  // персонажи текущего юзера, подтягиваются при старте, если isTelegram
+const itemSearchCache = new Map(); // query -> results, живёт всю сессию — каталог статичный,
+                                    // нет смысла заново дёргать Supabase на один и тот же ввод
 
 async function callApi(path, payload = {}) {
   if (!isTelegram) { toast('Открой мини-апп внутри Telegram, чтобы это сохранилось по-настоящему'); return null; }
@@ -824,6 +848,10 @@ function renderPromoTable(list){
 
 async function loadPromos(){
   if (!db) { renderPromoTable(promos); return; }
+
+  const cached = cacheGet('promos');
+  if (cached) { renderPromoTable(cached); return; }
+
   try {
     const { data, error } = await db
       .from('promo_codes')
@@ -832,13 +860,15 @@ async function loadPromos(){
 
     if (error || !data) throw error || new Error('no data');
 
-    renderPromoTable(data.map(row => ({
+    const mapped = data.map(row => ({
       code: row.code,
       status: row.expires_at
         ? 'истекает ' + new Date(row.expires_at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})
         : 'бессрочный',
       kind: row.expires_at ? 'sell' : 'buy',
-    })));
+    }));
+    cacheSet('promos', mapped);
+    renderPromoTable(mapped);
   } catch (err) {
     console.error('Supabase promo_codes error, показываем демо:', err);
     renderPromoTable(promos);
@@ -862,10 +892,15 @@ function renderGuidesTable(){
 }
 async function loadGuides(){
   if (!db) { renderGuidesTable(); return; }
+
+  const cached = cacheGet('guides');
+  if (cached) { guides = cached; renderGuidesTable(); return; }
+
   try {
     const { data, error } = await db.from('guides').select('title, meta, steps').order('created_at', { ascending:false });
     if (error || !data || !data.length) throw error || new Error('empty');
     guides = data;
+    cacheSet('guides', data);
   } catch (err) {
     console.error('Supabase guides error, показываем демо:', err);
   }
@@ -902,7 +937,7 @@ document.getElementById('promoAddBtn').addEventListener('click', async ()=>{
   const days = prompt('Дней до истечения (пусто = бессрочный):');
   const expiresAt = days ? new Date(Date.now() + Number(days)*86400000).toISOString() : null;
   const res = await callApi('admin-add-promo', { code, expiresAt });
-  if (res) { toast('Промокод добавлен'); loadPromos(); }
+  if (res) { toast('Промокод добавлен'); cacheClear('promos'); loadPromos(); }
 });
 
 // Читает файл из <input type=file> и возвращает {base64, mime} без префикса data:...;base64,
@@ -972,7 +1007,7 @@ document.getElementById('guideAddBtn').addEventListener('click', ()=>{
     }
 
     const res = await callApi('admin-add-guide', { title, meta, steps });
-    if (res) { toast('Гайд добавлен'); await loadGuides(); closeGuideCreate(); }
+    if (res) { toast('Гайд добавлен'); cacheClear('guides'); await loadGuides(); closeGuideCreate(); }
   });
 
   guidesList.style.display = 'none';
@@ -1638,13 +1673,20 @@ document.getElementById('squadCreateBtn').addEventListener('click', async ()=>{
     if (q.length < 2) { resultsBox.classList.remove('open'); return; }
     searchTimer = setTimeout(async ()=>{
       if (!db) { resultsBox.classList.remove('open'); return; } // без ключей Supabase поиск недоступен
-      const { data, error } = await db
-        .from('items_catalog')
-        .select('id, name, rarity')
-        .ilike('name', q + '%')
-        .order('name')
-        .limit(8);
-      if (error || !data) { resultsBox.classList.remove('open'); return; }
+
+      let data = itemSearchCache.get(q);
+      if (!data) {
+        const res = await db
+          .from('items_catalog')
+          .select('id, name, rarity')
+          .ilike('name', q + '%')
+          .order('name')
+          .limit(8);
+        if (res.error || !res.data) { resultsBox.classList.remove('open'); return; }
+        data = res.data;
+        itemSearchCache.set(q, data);
+      }
+
       resultsBox.innerHTML = data.map(it => `
         <div class="item-search-row" data-id="${esc(it.id)}" data-name="${esc(it.name)}" data-rarity="${esc(it.rarity)}">
           <div class="rarity-dot" style="background:${rarityColor(it.rarity)}"></div>
