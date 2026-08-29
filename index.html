@@ -25,6 +25,11 @@
     --bone-faint:   #4c4e51;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
+
+  /* iOS Safari зумит страницу при фокусе на инпуте с font-size < 16px — это и была
+     причина "дёрганья" при наборе текста. Простой и надёжный фикс — не опускаться
+     ниже 16px нигде, где можно печатать. */
+  input, textarea, select { font-size:16px !important; }
   html,body{background:var(--bg-void); height:100%;}
   body{
     font-family:'Inter', sans-serif;
@@ -1557,16 +1562,82 @@ document.getElementById('tradeCreateBtn').addEventListener('click', ()=>{
     <div class="detail-back" id="tradeCreateBack"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>отмена</div>
     <div class="panel-label">новое объявление</div>
     <div class="confirm-box">
-      <p>Опиши, что отдаёшь и что хочешь получить взамен — коротко, как в биржевом объявлении.</p>
-      <input id="ncGive" placeholder="Отдаю (например: Артефакт «Слеза»)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin-bottom:8px;">
-      <input id="ncWant" placeholder="Хочу (например: АКМ-74 + 20 000 ₽)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; font-size:12.5px; padding:10px; margin-bottom:12px;">
+      <p>Выбери предмет из игрового каталога, который отдаёшь, и опиши, что хочешь взамен.</p>
+      <div class="trade-item-label" style="margin-bottom:6px;">отдаю</div>
+      <div id="ncGiveArea">
+        <div class="item-search-box">
+          <input id="ncGiveSearch" placeholder="Начни вводить название предмета..." autocomplete="off" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; padding:10px;">
+          <div class="item-search-results" id="ncGiveResults"></div>
+        </div>
+      </div>
+      <input id="ncWant" placeholder="Хочу (например: АКМ-74 + 20 000 ₽)" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; padding:10px; margin:12px 0;">
       <div class="btn buy" id="ncSubmit">Опубликовать</div>
     </div>`;
   tradeDetail.querySelector('#tradeCreateBack').addEventListener('click', closeTradeCreate);
+
+  // --- выбор предмета "отдаю" из каталога — без ручного ввода, чтобы нельзя было
+  // написать несуществующий/выдуманный предмет ---
+  let selectedGiveItem = null;
+  const giveArea = tradeDetail.querySelector('#ncGiveArea');
+
+  function wireGiveSearch(){
+    const giveSearch = giveArea.querySelector('#ncGiveSearch');
+    const giveResults = giveArea.querySelector('#ncGiveResults');
+    let giveSearchTimer = null;
+
+    giveSearch.addEventListener('input', ()=>{
+      clearTimeout(giveSearchTimer);
+      const q = giveSearch.value.trim();
+      if (q.length < 2) { giveResults.classList.remove('open'); return; }
+      giveSearchTimer = setTimeout(async ()=>{
+        if (!db) { giveResults.classList.remove('open'); return; }
+        let data = itemSearchCache.get(q);
+        if (!data) {
+          const r = await db.from('items_catalog').select('id, name, rarity').ilike('name', q + '%').order('name').limit(8);
+          if (r.error || !r.data) { giveResults.classList.remove('open'); return; }
+          data = r.data;
+          itemSearchCache.set(q, data);
+        }
+        giveResults.innerHTML = data.map(it => `
+          <div class="item-search-row" data-name="${esc(it.name)}" data-rarity="${esc(it.rarity)}">
+            <div class="rarity-dot" style="background:${rarityColor(it.rarity)}"></div>
+            <div class="name">${esc(it.name)}</div>
+          </div>`).join('') || `<div class="item-search-row" style="color:var(--bone-faint);">ничего не найдено</div>`;
+        giveResults.querySelectorAll('.item-search-row[data-name]').forEach(row=>{
+          row.addEventListener('click', ()=>{
+            selectedGiveItem = row.dataset.name;
+            giveArea.innerHTML = `
+              <div class="picked-item-row">
+                <div class="rarity-dot" style="background:${rarityColor(row.dataset.rarity)}"></div>
+                <div class="name">${esc(selectedGiveItem)}</div>
+                <span class="x" id="ncGiveClear">✕</span>
+              </div>`;
+            giveArea.querySelector('#ncGiveClear').addEventListener('click', ()=>{
+              selectedGiveItem = null;
+              renderGiveSearchBox();
+            });
+          });
+        });
+        giveResults.classList.add('open');
+      }, 250);
+    });
+  }
+
+  function renderGiveSearchBox(){
+    giveArea.innerHTML = `
+      <div class="item-search-box">
+        <input id="ncGiveSearch" placeholder="Начни вводить название предмета..." autocomplete="off" style="width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--bone); font-family:'Inter',sans-serif; padding:10px;">
+        <div class="item-search-results" id="ncGiveResults"></div>
+      </div>`;
+    wireGiveSearch();
+  }
+  wireGiveSearch(); // навешиваем на исходную разметку формы
+
   tradeDetail.querySelector('#ncSubmit').addEventListener('click', async ()=>{
-    const giveItem = tradeDetail.querySelector('#ncGive').value.trim();
     const wantItem = tradeDetail.querySelector('#ncWant').value.trim();
-    if (!giveItem || !wantItem) { toast('Заполни оба поля'); return; }
+    if (!selectedGiveItem) { toast('Выбери предмет из списка для поля «Отдаю»'); return; }
+    if (!wantItem) { toast('Заполни, что хочешь получить'); return; }
+    const giveItem = selectedGiveItem;
 
     if (isTelegram) {
       const res = await callApi('trades', { action:'create', giveItem, wantItem });
