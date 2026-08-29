@@ -9,7 +9,7 @@
 // на проект, а у нас их и так набиралось много; всё, что логически про "обмен",
 // теперь живёт под одним роутом через action, а не разбросано по файлам.
 
-import { authenticate, notifyUser, checkRateLimit, getDisplayNickname, getUserTrustStats, isAdmin } from './_lib.js';
+import { authenticate, notifyUser, checkRateLimit, getDisplayNickname, getUserTrustStats, isAdmin, tgSendMessage, tgEditMessage, resolveDispute, disputeMessageText, verdictKeyboard } from './_lib.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'use POST' });
@@ -94,7 +94,7 @@ async function handleConfirm(supabaseAdmin, userId, body, res) {
   }
 
   const { data: deal, error: dealErr } = await supabaseAdmin
-    .from('trade_deals').select('id, party_a, party_b').eq('id', dealId).single();
+    .from('trade_deals').select('id, party_a, party_b, trade:trades(give_item, want_item)').eq('id', dealId).single();
   if (dealErr || !deal) return res.status(404).json({ error: 'сделка не найдена' });
   if (deal.party_a !== userId && deal.party_b !== userId) {
     return res.status(403).json({ error: 'ты не участник этой сделки' });
@@ -110,20 +110,22 @@ async function handleConfirm(supabaseAdmin, userId, body, res) {
     const allowed = await checkRateLimit(supabaseAdmin, userId, 'trade_dispute', 60);
     if (!allowed) return res.status(429).json({ error: 'слишком много споров подряд — подожди немного' });
 
-    await supabaseAdmin.from('trade_disputes').insert({
+    const { data: insertedDispute } = await supabaseAdmin.from('trade_disputes').insert({
       deal_id: dealId, reporter_id: userId,
       comment: comment || null, screenshot_url: screenshotUrl || null,
       admin_verdict: 'pending',
-    });
+    }).select('id').single();
     await supabaseAdmin.from('trade_deals').update({ status: 'disputed', updated_at: new Date().toISOString() }).eq('id', dealId);
 
     await notifyUser(supabaseAdmin, counterpartyId, 'notify_trade_request',
       `⚠️ По вашей сделке открыт спор — вторая сторона отметила «не состоялась». Разбором займётся администратор.`);
+
     if (process.env.ADMIN_TELEGRAM_ID) {
-      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: process.env.ADMIN_TELEGRAM_ID, text: `🆘 Новый спор по сделке ${dealId}. Комментарий: ${comment || '—'}` }),
-      }).catch(()=>{});
+      const text = disputeMessageText(dealId, deal.trade?.give_item, deal.trade?.want_item, false, comment);
+      const sent = await tgSendMessage(process.env.ADMIN_TELEGRAM_ID, text, verdictKeyboard(dealId));
+      if (sent?.result?.message_id && insertedDispute?.id) {
+        await supabaseAdmin.from('trade_disputes').update({ admin_message_id: sent.result.message_id }).eq('id', insertedDispute.id);
+      }
     }
     return res.status(200).json({ status: 'disputed' });
   }
@@ -188,12 +190,12 @@ async function handleDisputeRespond(supabaseAdmin, userId, body, res) {
   const { dealId, comment, screenshotUrl } = body;
   if (!dealId || !comment) return res.status(400).json({ error: 'dealId и comment обязательны' });
 
-  const { data: deal } = await supabaseAdmin.from('trade_deals').select('party_a, party_b, status').eq('id', dealId).single();
+  const { data: deal } = await supabaseAdmin.from('trade_deals').select('party_a, party_b, status, trade:trades(give_item, want_item)').eq('id', dealId).single();
   if (!deal) return res.status(404).json({ error: 'сделка не найдена' });
   if (deal.party_a !== userId && deal.party_b !== userId) return res.status(403).json({ error: 'ты не участник этой сделки' });
   if (deal.status !== 'disputed') return res.status(400).json({ error: 'по этой сделке нет открытого спора' });
 
-  const { data: dispute } = await supabaseAdmin.from('trade_disputes').select('id, reporter_id').eq('deal_id', dealId).order('created_at', { ascending: false }).limit(1).single();
+  const { data: dispute } = await supabaseAdmin.from('trade_disputes').select('id, reporter_id, comment, admin_message_id').eq('deal_id', dealId).order('created_at', { ascending: false }).limit(1).single();
   if (!dispute) return res.status(404).json({ error: 'спор не найден' });
   if (dispute.reporter_id === userId) return res.status(400).json({ error: 'у жалобщика уже есть свой комментарий — отвечать может только вторая сторона' });
 
@@ -203,11 +205,10 @@ async function handleDisputeRespond(supabaseAdmin, userId, body, res) {
     .eq('id', dispute.id);
   if (error) return res.status(500).json({ error: error.message });
 
-  if (process.env.ADMIN_TELEGRAM_ID) {
-    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: process.env.ADMIN_TELEGRAM_ID, text: `💬 Вторая сторона ответила на спор по сделке ${dealId}.` }),
-    }).catch(()=>{});
+  if (process.env.ADMIN_TELEGRAM_ID && dispute.admin_message_id) {
+    const text = disputeMessageText(dealId, deal.trade?.give_item, deal.trade?.want_item, true, dispute.comment)
+      + `\n\n💬 Ответ второй стороны: ${comment}`;
+    await tgEditMessage(process.env.ADMIN_TELEGRAM_ID, dispute.admin_message_id, text, verdictKeyboard(dealId));
   }
 
   return res.status(200).json({ ok: true });
@@ -265,32 +266,17 @@ async function handleAdminResolve(supabaseAdmin, tgUser, adminUserId, body, res)
   if (!isAdmin(tgUser)) return res.status(403).json({ error: 'только администратор' });
 
   const { dealId, verdict } = body;
-  const VALID = ['party_a_at_fault', 'party_b_at_fault', 'misunderstanding', 'no_fault'];
-  if (!dealId || !VALID.includes(verdict)) return res.status(400).json({ error: 'dealId и корректный verdict обязательны' });
+  if (!dealId || !verdict) return res.status(400).json({ error: 'dealId и verdict обязательны' });
 
-  const { data: deal } = await supabaseAdmin.from('trade_deals').select('party_a, party_b').eq('id', dealId).single();
-  if (!deal) return res.status(404).json({ error: 'сделка не найдена' });
+  const result = await resolveDispute(supabaseAdmin, adminUserId, dealId, verdict);
+  if (result.error) return res.status(400).json(result);
 
-  await supabaseAdmin
-    .from('trade_disputes')
-    .update({ admin_verdict: verdict, resolved_by: adminUserId, resolved_at: new Date().toISOString() })
-    .eq('deal_id', dealId);
+  // если у этого спора есть интерактивное сообщение в Telegram — убираем кнопки
+  // и дописываем итог, чтобы не оставлять активные кнопки на уже решённом споре
+  const { data: dispute } = await supabaseAdmin.from('trade_disputes').select('admin_message_id').eq('deal_id', dealId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (process.env.ADMIN_TELEGRAM_ID && dispute?.admin_message_id) {
+    await tgEditMessage(process.env.ADMIN_TELEGRAM_ID, dispute.admin_message_id, `✅ <b>Решено</b>\n\n${result.verdictText}`, undefined);
+  }
 
-  // "недопонимание" / "нет вины" — это по сути закрытая нормальная сделка, не должна
-  // вечно висеть как спорная в репутации сторон. А вот "виноват party_a/b" — остаётся
-  // disputed навсегда, это и есть тот самый след в репутации, который видят другие.
-  const resolvedStatus = (verdict === 'misunderstanding' || verdict === 'no_fault') ? 'completed' : 'disputed';
-  await supabaseAdmin.from('trade_deals').update({ status: resolvedStatus, updated_at: new Date().toISOString() }).eq('id', dealId);
-
-  const verdictText = {
-    party_a_at_fault: 'Разбор завершён: администратор посчитал виноватой первую сторону сделки.',
-    party_b_at_fault: 'Разбор завершён: администратор посчитал виноватой вторую сторону сделки.',
-    misunderstanding: 'Разбор завершён: администратор счёл это недопониманием, без чьей-либо вины. Сделка закрыта как завершённая.',
-    no_fault: 'Разбор завершён: администратор не нашёл вины ни одной из сторон. Сделка закрыта как завершённая.',
-  }[verdict];
-
-  await notifyUser(supabaseAdmin, deal.party_a, 'notify_trade_request', `⚖️ ${verdictText}`);
-  await notifyUser(supabaseAdmin, deal.party_b, 'notify_trade_request', `⚖️ ${verdictText}`);
-
-  return res.status(200).json({ ok: true, resolvedStatus });
+  return res.status(200).json({ ok: true, resolvedStatus: result.resolvedStatus });
 }
