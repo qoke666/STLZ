@@ -176,6 +176,84 @@ export function isAdmin(tgUser) {
   return String(tgUser.id) === process.env.ADMIN_TELEGRAM_ID;
 }
 
+// Общие обёртки над Bot API — используются и при создании спора (кнопки сразу
+// в первом сообщении), и вебхуком (когда админ жмёт кнопку и сообщение надо
+// отредактировать на месте, а не заспамить новыми).
+export async function tgSendMessage(chatId, text, replyMarkup) {
+  const res = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }),
+  });
+  return res.json();
+}
+export async function tgEditMessage(chatId, messageId, text, replyMarkup) {
+  return fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/editMessageText`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', reply_markup: replyMarkup }),
+  }).catch(()=>{});
+}
+export async function tgAnswerCallback(callbackQueryId, text) {
+  return fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: false }),
+  }).catch(()=>{});
+}
+
+export function disputeMessageText(dealId, giveItem, wantItem, responded, reporterComment) {
+  return `🆘 <b>Новый спор по сделке</b>\n«${giveItem}» → «${wantItem}»\n\n`
+    + `Комментарий жалобщика: ${reporterComment || '—'}\n`
+    + `Ответ второй стороны: ${responded ? '✅ получен' : '⏳ ожидается'}\n\n`
+    + `Открой STALZON → Настройки → «Споры на рассмотрении» для полной картины (репутация сторон), либо реши прямо тут:`;
+}
+export function verdictKeyboard(dealId) {
+  return {
+    inline_keyboard: [
+      [{ text: 'Виновата сторона A', callback_data: `v:${dealId}:party_a_at_fault` },
+       { text: 'Виновата сторона B', callback_data: `v:${dealId}:party_b_at_fault` }],
+      [{ text: 'Недопонимание', callback_data: `v:${dealId}:misunderstanding` },
+       { text: 'Нет вины', callback_data: `v:${dealId}:no_fault` }],
+    ],
+  };
+}
+
+// Единая логика вынесения вердикта — вызывается и из /api/trades (кнопка внутри
+// мини-аппа), и из /api/telegram-webhook (кнопка прямо в сообщении бота), чтобы
+// правила не могли разъехаться между двумя точками входа.
+export async function resolveDispute(supabaseAdmin, adminUserId, dealId, verdict) {
+  const VALID = ['party_a_at_fault', 'party_b_at_fault', 'misunderstanding', 'no_fault'];
+  if (!VALID.includes(verdict)) return { error: 'некорректный verdict' };
+
+  const { data: deal } = await supabaseAdmin.from('trade_deals').select('party_a, party_b').eq('id', dealId).single();
+  if (!deal) return { error: 'сделка не найдена' };
+
+  const { data: dispute } = await supabaseAdmin
+    .from('trade_disputes').select('id, admin_verdict').eq('deal_id', dealId)
+    .order('created_at', { ascending: false }).limit(1).single();
+  if (dispute && dispute.admin_verdict && dispute.admin_verdict !== 'pending') {
+    return { error: 'этот спор уже разобран' };
+  }
+
+  await supabaseAdmin
+    .from('trade_disputes')
+    .update({ admin_verdict: verdict, resolved_by: adminUserId, resolved_at: new Date().toISOString() })
+    .eq('deal_id', dealId);
+
+  const resolvedStatus = (verdict === 'misunderstanding' || verdict === 'no_fault') ? 'completed' : 'disputed';
+  await supabaseAdmin.from('trade_deals').update({ status: resolvedStatus, updated_at: new Date().toISOString() }).eq('id', dealId);
+
+  const verdictText = {
+    party_a_at_fault: 'Разбор завершён: администратор посчитал виноватой первую сторону сделки.',
+    party_b_at_fault: 'Разбор завершён: администратор посчитал виноватой вторую сторону сделки.',
+    misunderstanding: 'Разбор завершён: администратор счёл это недопониманием, без чьей-либо вины. Сделка закрыта как завершённая.',
+    no_fault: 'Разбор завершён: администратор не нашёл вины ни одной из сторон. Сделка закрыта как завершённая.',
+  }[verdict];
+
+  await notifyUser(supabaseAdmin, deal.party_a, 'notify_trade_request', `⚖️ ${verdictText}`);
+  await notifyUser(supabaseAdmin, deal.party_b, 'notify_trade_request', `⚖️ ${verdictText}`);
+
+  return { ok: true, resolvedStatus, verdictText };
+}
+
 // Единая логика "как показывать человека другим" — везде должен быть игровой
 // ник (game_characters), а не имя из Telegram (users.display_name). Последнее —
 // это то, что человек назвал себя в самом Telegram, часто вообще не связано
