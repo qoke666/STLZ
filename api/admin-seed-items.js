@@ -65,7 +65,7 @@ async function seedStats(supabaseAdmin, res) {
   const tarBuffer = gunzipSync(gz);
 
   const entries = parseTar(tarBuffer);
-  const rows = [];
+  const rowsMap = new Map(); // id -> row, дедуплицируем — один и тот же id может встретиться в архиве больше раза
 
   for (const entry of entries) {
     // ищем строго global/<repo-name-с-хешем>/items/<категория>/.../<id>.json
@@ -82,7 +82,7 @@ async function seedStats(supabaseAdmin, res) {
     const name = json.name?.lines?.ru;
     if (!name) continue; // без названия строку всё равно не вставить (name NOT NULL) — пропускаем как мусор
 
-    rows.push({
+    rowsMap.set(json.id, {
       id: json.id,
       name,
       rarity: json.color || 'DEFAULT',
@@ -90,6 +90,8 @@ async function seedStats(supabaseAdmin, res) {
       stats: extractNumericStats(json),
     });
   }
+
+  const rows = [...rowsMap.values()];
 
   const BATCH = 300;
   let updated = 0;
