@@ -79,8 +79,13 @@ async function seedStats(supabaseAdmin, res) {
     try { json = JSON.parse(entry.content.toString('utf8')); } catch { continue; }
     if (!json.id) continue;
 
+    const name = json.name?.lines?.ru;
+    if (!name) continue; // без названия строку всё равно не вставить (name NOT NULL) — пропускаем как мусор
+
     rows.push({
       id: json.id,
+      name,
+      rarity: json.color || 'DEFAULT',
       category,
       stats: extractNumericStats(json),
     });
