@@ -15,9 +15,11 @@ import { gunzipSync } from 'zlib';
 const LISTING_URL = 'https://raw.githubusercontent.com/EXBO-Studio/stalzone-database/main/global/listing.json';
 const TARBALL_URL = 'https://codeload.github.com/EXBO-Studio/stalzone-database/tar.gz/refs/heads/main';
 
-// Категории, для которых вообще имеет смысл считать боевые характеристики —
-// остальное (контейнеры, рюкзаки, квестовые предметы и т.п.) нам не нужно.
-const STAT_CATEGORIES = ['weapon', 'armor', 'bullet', 'attachment', 'weapon_modules'];
+// Категории, для которых вообще имеет смысл считать характеристики сборки —
+// оружейная часть (weapon/bullet/attachment/weapon_modules), защита (armor),
+// и всё, что формирует "артефактный слот" сборки (artefact/containers),
+// плюс расходники (medicine — лежит ВНУТРИ supply/medicine, отдельно обрабатываем ниже).
+const STAT_CATEGORIES = ['weapon', 'armor', 'bullet', 'attachment', 'weapon_modules', 'artefact', 'containers'];
 
 export default async function handler(req, res) {
   if (req.query.secret !== process.env.SEED_SECRET) {
@@ -68,12 +70,19 @@ async function seedStats(supabaseAdmin, res) {
   const rowsMap = new Map(); // id -> row, дедуплицируем — один и тот же id может встретиться в архиве больше раза
 
   for (const entry of entries) {
-    // ищем строго global/<repo-name-с-хешем>/items/<категория>/.../<id>.json
-    const m = entry.name.match(/\/global\/items\/([^/]+)\/.*\/([a-z0-9]+)\.json$/i)
-           || entry.name.match(/\/global\/items\/([^/]+)\/([a-z0-9]+)\.json$/i);
-    if (!m) continue;
-    const [, category] = m;
-    if (!STAT_CATEGORIES.includes(category)) continue;
+    // медикаменты лежат вложенно — global/items/supply/medicine/<id>.json,
+    // а не отдельной категорией верхнего уровня, ловим этот случай отдельно
+    let category;
+    let mMed = entry.name.match(/\/global\/items\/supply\/medicine\/([a-z0-9]+)\.json$/i);
+    if (mMed) {
+      category = 'medicine';
+    } else {
+      const m = entry.name.match(/\/global\/items\/([^/]+)\/.*\/([a-z0-9]+)\.json$/i)
+             || entry.name.match(/\/global\/items\/([^/]+)\/([a-z0-9]+)\.json$/i);
+      if (!m) continue;
+      category = m[1];
+      if (!STAT_CATEGORIES.includes(category)) continue;
+    }
 
     let json;
     try { json = JSON.parse(entry.content.toString('utf8')); } catch { continue; }
@@ -107,15 +116,20 @@ async function seedStats(supabaseAdmin, res) {
   return res.status(200).json({ ok: true, mode: 'stats', found: rows.length, updated });
 }
 
-// Обходит вложенные infoBlocks предмета и собирает все numeric-поля
-// в плоский объект { "core.tooltip.info.weight": 2.71, ... } —
-// имена ключей оставляем как в игре, чтобы не гадать со своим переводом.
+// Обходит вложенные infoBlocks предмета и собирает характеристики в плоский
+// объект: numeric-поля как обычное число, range-поля (у артефактов — диапазон
+// возможных значений в зависимости от % качества конкретного экземпляра) как
+// { min, max } — калькулятор сборки сам решит, как их использовать.
 function extractNumericStats(node, out = {}) {
   if (Array.isArray(node)) {
     for (const v of node) extractNumericStats(v, out);
   } else if (node && typeof node === 'object') {
-    if (node.type === 'numeric' && node.name?.key && typeof node.value === 'number') {
-      out[node.name.key] = node.value;
+    if (node.name?.key) {
+      if (node.type === 'numeric' && typeof node.value === 'number') {
+        out[node.name.key] = node.value;
+      } else if (node.type === 'range' && typeof node.min === 'number' && typeof node.max === 'number') {
+        out[node.name.key] = { min: node.min, max: node.max };
+      }
     }
     for (const v of Object.values(node)) extractNumericStats(v, out);
   }
